@@ -51,40 +51,37 @@ class Game:
     def roll_dice(n):
         return sorted([random.randint(1, 6) for _ in range(n)], reverse=True)
 
-    def attack(self, attacker_country, defender_country):
+    def attack(self, attacker_country, defender_country, attacking_soldiers):
         attacker = attacker_country.soldiers
         defender = defender_country.soldiers
 
-        print(f"Attacking {defender_country} from {attacker_country}")
-        while attacker.number > 1 and defender.number > 0:
-            attack_rolls = self.roll_dice(min(3, attacker.number - 1))
-            defend_rolls = self.roll_dice(min(2, defender.number))
+        assert 1 <= attacking_soldiers <= 3
+        assert attacking_soldiers < attacker.number
 
-            print(f"Attacker rolls: {attack_rolls}")
-            print(f"Defender rolls: {defend_rolls}")
+        attack_rolls = self.roll_dice(min(3, attacker.number - 1))
+        defend_rolls = self.roll_dice(min(2, defender.number, attack_rolls))
 
-            for a, d in zip(attack_rolls, defend_rolls):
-                if a > d:
-                    defender.number -= 1
-                    print("Defender loses 1 soldier.")
-                else:
-                    attacker.number -= 1
-                    print("Attacker loses 1 soldier.")
+        print(f"Attacker rolls: {attack_rolls}")
+        print(f"Defender rolls: {defend_rolls}")
 
-            if defender.number <= 0:
-                print(f"{defender_country} has been conquered!")
-                defender_country.owner.remove_country(defender_country)
-                defender_country.owner = attacker_country.owner
-                attacker_country.owner.add_country(defender_country)
-                defender_country.soldiers = Soldier(defender_country, attacker_country.owner, 1)
+        for a, d in zip(attack_rolls, defend_rolls):
+            if a > d:
+                defender.number -= 1
+                print("Defender loses 1 soldier.")
+            else:
                 attacker.number -= 1
-                return
+                print("Attacker loses 1 soldier.")
 
-            continue_attack = input("Do you want to continue the attack? (y/n): ").lower()
-            if continue_attack != 'y':
-                break
+        if defender.number <= 0:
+            print(f"{defender_country} has been conquered!")
+            defender_country.owner.remove_country(defender_country)
+            defender_country.owner = attacker_country.owner
+            attacker_country.owner.add_country(defender_country)
+            defender_country.soldiers = Soldier(defender_country, attacker_country.owner, 1)
+            attacker.number -= 1
 
         def fortify(self, player):
+            # make this not take io-actions
             print("Fortify phase: You can move soldiers between your countries.")
             print("Choose a country to move soldiers from:")
             for i, country in enumerate(player.countries):
