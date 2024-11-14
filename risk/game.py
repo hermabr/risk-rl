@@ -80,37 +80,37 @@ class Game:
             defender_country.soldiers = Soldier(defender_country, attacker_country.owner, 1)
             attacker.number -= 1
 
-        def fortify(self, player):
-            # make this not take io-actions
-            print("Fortify phase: You can move soldiers between your countries.")
-            print("Choose a country to move soldiers from:")
-            for i, country in enumerate(player.countries):
-                print(f"{i + 1}: {country} (Soldiers: {country.soldiers.number})")
+    def fortify(self, player):
+        # make this not take io-actions
+        print("Fortify phase: You can move soldiers between your countries.")
+        print("Choose a country to move soldiers from:")
+        for i, country in enumerate(player.countries):
+            print(f"{i + 1}: {country} (Soldiers: {country.soldiers.number})")
 
-            from_choice = int(input("Choose a country (enter number): ")) - 1
-            from_country = player.countries[from_choice]
+        from_choice = int(input("Choose a country (enter number): ")) - 1
+        from_country = player.countries[from_choice]
 
-            if from_country.soldiers.number <= 1:
-                print("Not enough soldiers to move.")
-                return
+        if from_country.soldiers.number <= 1:
+            print("Not enough soldiers to move.")
+            return
 
-            neighbors = [neighbor for neighbor in self.game_map.neighbors(from_country) if neighbor.owner == player]
-            if not neighbors:
-                print("No neighboring countries owned by you to fortify.")
-                return
+        neighbors = [neighbor for neighbor in self.game_map.neighbors(from_country) if neighbor.owner == player]
+        if not neighbors:
+            print("No neighboring countries owned by you to fortify.")
+            return
 
-            print("Choose a neighboring country to move soldiers to:")
-            for i, neighbor in enumerate(neighbors):
-                print(f"{i + 1}: {neighbor} (Soldiers: {neighbor.soldiers.number})")
+        print("Choose a neighboring country to move soldiers to:")
+        for i, neighbor in enumerate(neighbors):
+            print(f"{i + 1}: {neighbor} (Soldiers: {neighbor.soldiers.number})")
 
-            to_choice = int(input("Choose a country (enter number): ")) - 1
-            to_country = neighbors[to_choice]
+        to_choice = int(input("Choose a country (enter number): ")) - 1
+        to_country = neighbors[to_choice]
 
-            move_count = int(input(f"How many soldiers do you want to move? (Max: {from_country.soldiers.number - 1}): "))
-            if move_count >= from_country.soldiers.number:
-                print("Invalid number of soldiers.")
-                return
+        move_count = int(input(f"How many soldiers do you want to move? (Max: {from_country.soldiers.number - 1}): "))
+        if move_count >= from_country.soldiers.number:
+            print("Invalid number of soldiers.")
+            return
 
-            from_country.soldiers.number -= move_count
-            to_country.soldiers.number += move_count
-            print(f"Moved {move_count} soldiers from {from_country} to {to_country}.")
+        from_country.soldiers.number -= move_count
+        to_country.soldiers.number += move_count
+        print(f"Moved {move_count} soldiers from {from_country} to {to_country}.")
