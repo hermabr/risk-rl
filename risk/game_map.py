@@ -24,8 +24,8 @@ class GameMap(nx.Graph):
             MiddleEast:(4,3),India:(5.5,3),Siam:(6.5,3),Indonesia:(7,2),
             NewGuinea:(8,1.5),WesternAustralia:(7,1),EasternAustralia:(8,0.5)
         }
-        self.fig, self.ax = plt.subplots(figsize=(15, 8))
-        plt.ion()  # dynamic updates of plot
+        self.fig, self.ax = plt.subplots(figsize=(18, 10))
+        plt.ion()
 
     def draw_map(self):
         self.ax.clear()

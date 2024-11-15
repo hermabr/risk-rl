@@ -15,7 +15,9 @@ class Player:
     def remove_country(self, country: Country):
         self.countries.remove(country)
     
-    
+    def get_cards(self):
+        return {k: len(v) for k,v in self.cards.items()}
+
     def get_trade_in_options(self):
         options = []
 
@@ -29,11 +31,12 @@ class Player:
                 options.append([Card(k)]*3)
         
         return options
-            
-    def __str__(self):
-        return self.name
 
     def print_summary(self):
         for i, country in enumerate(self.countries):
             print(f"{i + 1}: {country} (Current soldiers: {country.army.n_soldiers})")
-        
+            
+    def __str__(self):
+        return self.name
+
+    

@@ -6,7 +6,7 @@ from risk.player import Player
 from risk.game_map import GameMap
 from risk.continent import CONTINENTS
 from risk.card import *
-# TODO add option to surpress prints, default False
+import matplotlib.pyplot as plt
 
 class Game:
     def __init__(self, players):
@@ -21,6 +21,9 @@ class Game:
         self.used_cards = []
         self.country_conquered_in_round = False
     
+    # TODO: should add some verification that the game flow is correct/ could keep track of last player
+    # that got reinforcement and make sure that the next attacker/drafter is the player that is next in line
+    
     def next_player(self):
         if self.curr_player < self.num_players - 1:
             self.curr_player += 1
@@ -33,12 +36,11 @@ class Game:
             player = self.players[i % len(self.players)]
             country.owner = player
             player.add_country(country)
-            #self.game_map.add_node(country)
 
     def initialize_armies(self):
         for player in self.players:
             for country in player.countries:
-                country.army = Army(player, random.randint(1,5)) # change later
+                country.army = Army(player, random.randint(1,5)) # TODO change later
 
     def visualize(self):
         self.game_map.draw_map()
@@ -52,27 +54,40 @@ class Game:
         
         player.unassigned_soldiers += reinforcements
         print(f"{player} receives {reinforcements} reinforcements.")
+
+    def get_player_army_summary(self, player):
+        summary = [
+            (
+                c,
+                c.army.n_soldiers,
+                [(n, n.army.n_soldiers) for n in self.game_map.neighbors(c) if n not in player.countries]
+            )
+            for c in player.countries
+        ]
+        summary.sort(key=lambda x: (len(x[2]), x[1]), reverse=True) # this is not the final hueristic to use for ranking
+        return summary
+
     
     def assign_soldiers(self, player: Player, country: Country, n_soldiers: int):
         assert self.players[self.curr_player] == player
         assert n_soldiers <= player.unassigned_soldiers
         assert country in player.countries
-        player.print_summary()
 
-        country_idx = player.index(country)
+        country_idx = player.countries.index(country)
         player.countries[country_idx].army.n_soldiers += n_soldiers
         player.unassigned_soldiers -= n_soldiers
 
     def get_attack_options(self, player):
-        options = [] # tuple (country_from, country_to_attack)
+        options = [] # tuple ((country_from, n_soldiers), (country_to_attack, n_soldiers))
         for country in player.countries:
             if country.army.n_soldiers == 1:
                 continue
             neighbor_countries = self.game_map.neighbors(country)
             for n in neighbor_countries:
                 if n not in player.countries:
-                    options.append((country, n))
+                    options.append(((country, country.army.n_soldiers), (n, n.army.n_soldiers)))
         
+        options.sort(key=lambda x: x[0][1] - x[1][1], reverse=True)
         return options
         
     def attack(self, attacker: Player, attacker_country: Country, defender_country: Country, attacking_soldiers:int):
@@ -141,21 +156,22 @@ class Game:
     # get all other connected countries that the player owns
     # two countries are connected if there is a path between them
     # and all countries along that path are owned by the player
-    def get_connected_countries(self, player: Player):
-        country_connections = {country: [] for country in player.countries}
-
+    def get_fortify_options(self, player: Player):
         player_countries = player.countries
         player_subgraph = self.game_map.subgraph(player_countries)
+        fortify_options = {}
 
         connected_components = nx.connected_components(player_subgraph)
         for component in connected_components:
             component_countries = list(component)
 
             for country in component_countries:
+                if country.army.n_soldiers < 2:
+                    continue
                 other_countries = [c for c in component_countries if c != country]
-                country_connections[country] = other_countries
+                fortify_options[country] = other_countries
 
-        return country_connections
+        return fortify_options
 
         
     def fortify(self, player: Player, origin_country: Country, dest_country: Country, n_soldiers_move: int):
@@ -165,15 +181,14 @@ class Game:
         assert dest_country in player.countries
 
         assert n_soldiers_move <= origin_country.army.n_soldiers
-        
-        connected_countries = self.get_connected_countries(player)
-        assert dest_country in connected_countries[origin_country]
 
+        fortify_options = self.get_fortify_options(player)
+        assert origin_country in fortify_options.keys()
+        assert dest_country in fortify_options[origin_country]
+        
         dest_country.army.n_soldiers += n_soldiers_move
         origin_country.army.n_soldiers -= n_soldiers_move
         
-        # after fortify step, move to next player, no we dont do that
-        #self.next_player()
 
     def draw_card(self, player: Player):
         assert self.players[self.curr_player] == player
