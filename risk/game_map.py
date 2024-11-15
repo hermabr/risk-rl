@@ -6,7 +6,6 @@ from risk.country import *
 class GameMap(nx.Graph):
     def __init__(self):
         super().__init__()
-        #  self._game_map = self.initialize_game_map()
         self.initialize_game_map()
 
     def draw_map(self):
@@ -37,7 +36,6 @@ class GameMap(nx.Graph):
         plt.show()
 
     def initialize_game_map(self):
-        #  game_map = nx.Graph()
         self.add_edge(Alaska,             NorthwestTerritory)
         self.add_edge(Alaska,             Alberta)
         self.add_edge(NorthwestTerritory, Alberta)

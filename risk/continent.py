@@ -1,6 +1,8 @@
 from risk.country import *
+from typing import List
+
 class Continent:
-    def __init__(self, name, countries, extra_points):
+    def __init__(self, name, countries: List[Country], extra_points: int):
         self.name = name
         self.countries = countries
         self.extra_points = extra_points
