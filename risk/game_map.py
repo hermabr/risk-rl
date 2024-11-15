@@ -1,16 +1,17 @@
 import networkx as nx
+
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+plt.ion()
 
 from risk.country import *
 
 class GameMap(nx.Graph):
     def __init__(self):
         super().__init__()
-        #  self._game_map = self.initialize_game_map()
         self.initialize_game_map()
-
-    def draw_map(self):
-        positions = {
+        self.positions = {
             Alaska:(-2,6),NorthwestTerritory:(-1,6),Greenland:(1,6),Alberta:(-1.5,5),
             Ontario:(-0.5,5),Quebec:(0.5,5),WesternUS:(-1.5,4),EasternUS:(0,4),
             CentralAmerica:(-1,3),Venezuela:(-1,2),Brazil:(0,1),Peru:(-1,1),
@@ -23,21 +24,27 @@ class GameMap(nx.Graph):
             MiddleEast:(4,3),India:(5.5,3),Siam:(6.5,3),Indonesia:(7,2),
             NewGuinea:(8,1.5),WesternAustralia:(7,1),EasternAustralia:(8,0.5)
         }
-        plt.figure(figsize=(15, 8))
+        self.fig, self.ax = plt.subplots(figsize=(15, 8))
+        plt.ion()  # dynamic updates of plot
+
+    def draw_map(self):
+        self.ax.clear()
         color_map = []
         players = []
         for node in self.nodes():
-            if node.owner is None:
-                color_map.append('gray')
+            if node.army and node.army.owner:
+                if node.army.owner not in players:
+                    players.append(node.army.owner)
+                color_map.append(players.index(node.army.owner))
             else:
-                if node.owner not in players:
-                    players.append(node.owner)
-                color_map.append(players.index(node.owner))
-        nx.draw(self, with_labels=True, node_color=color_map, cmap=plt.cm.tab20, pos=positions, node_size=3000)
-        plt.show()
+                color_map.append('gray')
+        nx.draw(self, with_labels=True, node_color=color_map, cmap=plt.cm.tab20,
+                pos=self.positions, node_size=3000, ax=self.ax)
+        
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
     def initialize_game_map(self):
-        #  game_map = nx.Graph()
         self.add_edge(Alaska,             NorthwestTerritory)
         self.add_edge(Alaska,             Alberta)
         self.add_edge(NorthwestTerritory, Alberta)

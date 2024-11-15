@@ -1,11 +1,25 @@
+from __future__ import annotations
+
+# keep owner reference? might simplify things when choosing
+# defining state space for RL later
 class Country:
-    def __init__(self, name, continent):
+    def __init__(self, name, continent:str):
         self.name = name
         self.continent = continent
-        self.soldiers = None
+        self._army = None
+    
+    @property
+    def army(self) -> Army:
+        return self._army
+
+    @army.setter
+    def army(self, value):
+        self._army = value
 
     def __str__(self):
-        return f"{self.name}\n({self.soldiers.number})"
+        soldiers = self.army.n_soldiers if self.army else 0
+        return f"{self.name}({soldiers})"
+
 
     def __repr__(self):
         return self.name
