@@ -13,38 +13,49 @@ class Game:
         self.players = players
         self.countries = [Alaska, Alberta, CentralAmerica, EasternUS, Greenland, NorthwestTerritory, Ontario, Quebec, WesternUS, Venezuela, Brazil, Peru, Argentina, Iceland, GreatBritain, NorthernEurope, Scandinavia, Ukraine, SouthernEurope, WesternEurope, NorthAfrica, Egypt, EastAfrica, Congo, SouthAfrica, Madagascar, Afghanistan, China, India, Irkutsk, Japan, Kamchatka, MiddleEast, Mongolia, Siam, Siberia, Ural, Yakutsk, Indonesia, NewGuinea, WesternAustralia, EasternAustralia]
         self.game_map = GameMap()
-        self.assign_countries()
-        self.initialize_armies()
         self.num_players = len(self.players)
+        self.assign_countries_and_initialize_armies()
         self.curr_player = 0
         self.card_deck = init_deck()
         self.used_cards = []
         self.country_conquered_in_round = False
+        # TODO: should add some verification that the game flow is correct/ could keep track of last player
     
-    # TODO: should add some verification that the game flow is correct/ could keep track of last player
-    # that got reinforcement and make sure that the next attacker/drafter is the player that is next in line
+    def visualize(self):
+        self.game_map.draw_map()
     
+    def assign_countries_and_initialize_armies(self):
+        initial_armies_per_player_dict = {2: 40, 3: 35, 4: 30, 5: 25, 6: 20}
+        random.shuffle(self.countries)
+        num_players = self.num_players
+        initial_armies_per_player = initial_armies_per_player_dict[num_players]
+
+        for i, country in enumerate(self.countries):
+            player = self.players[i % num_players]
+            country.owner = player
+            player.add_country(country)
+            country.army = Army(player, 1)
+
+        for player in self.players:
+            territories_owned = player.countries
+            num_territories = len(territories_owned)
+            armies_to_assign = initial_armies_per_player - num_territories
+
+            armies_distribution = [0] * num_territories
+            for _ in range(armies_to_assign):
+                idx = random.randint(0, num_territories - 1)
+                armies_distribution[idx] += 1
+
+            for idx, country in enumerate(territories_owned):
+                country.army.n_soldiers += armies_distribution[idx]
+
     def next_player(self):
         if self.curr_player < self.num_players - 1:
             self.curr_player += 1
         else:
             self.curr_player = 0
     
-    def assign_countries(self):
-        random.shuffle(self.countries)
-        for i, country in enumerate(self.countries):
-            player = self.players[i % len(self.players)]
-            country.owner = player
-            player.add_country(country)
-
-    def initialize_armies(self):
-        for player in self.players:
-            for country in player.countries:
-                country.army = Army(player, random.randint(1,5)) # TODO change later
-
-    def visualize(self):
-        self.game_map.draw_map()
-
+    
     def reinforce(self, player: Player):
         reinforcements = max(len(player.countries) // 3, 3)
 
@@ -158,7 +169,7 @@ class Game:
     # and all countries along that path are owned by the player
     def get_fortify_options(self, player: Player):
         player_countries = player.countries
-        player_subgraph = self.game_map.subgraph(player_countries)
+        player_subgraph = self.game_map.get_subgraph(player_countries)
         fortify_options = {}
 
         connected_components = nx.connected_components(player_subgraph)

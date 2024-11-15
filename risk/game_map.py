@@ -1,4 +1,5 @@
 import networkx as nx
+from typing import List
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -137,3 +138,14 @@ class GameMap(nx.Graph):
         self.add_edge(Ukraine,            Afghanistan)
         self.add_edge(Ukraine,            MiddleEast)
         self.add_edge(Siam,               Indonesia)
+    
+    # cannot call .subgraph() on the main class, that causes
+    # an indirect call to the constructor which generates an additional nem empty plot
+    def get_subgraph(self, countries:List[Country]):
+        subgraph = nx.Graph()
+        subgraph.add_nodes_from(countries)
+        for u, v in self.edges():
+            if u in countries and v in countries:
+                subgraph.add_edge(u, v)
+
+        return subgraph

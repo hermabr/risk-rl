@@ -39,6 +39,7 @@ class GamePlay:
                 self.game.trade_in_cards(self.curr_player, options[selected_option])
         else:
             print("Player cannot trade in any cards")
+        
         self.next_phase()
     
     def process_draft_phase(self):
@@ -54,7 +55,7 @@ class GamePlay:
             n_soldiers = int(input("Select number of soldiers to assign: "))
             country = position[selected_country_idx][0]
             self.game.assign_soldiers(self.curr_player, country, n_soldiers)
-            self.game.visualize
+            self.game.visualize()
 
         self.next_phase()
 
