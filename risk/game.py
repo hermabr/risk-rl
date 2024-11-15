@@ -128,8 +128,8 @@ class Game:
         attack_rolls = self.roll_dice(attacking_soldiers)
         defend_rolls = self.roll_dice(min(2, defender.n_soldiers))
 
-        print(f"Attacker rolls: {attack_rolls}")
-        print(f"Defender rolls: {defend_rolls}")
+        print(f"\x1b[31mAttacker rolls\x1b[0m: {attack_rolls}")
+        print(f"\x1b[32mDefender rolls\x1b[0m: {defend_rolls}")
 
         attacker_loss = 0
         defender_loss = 0
