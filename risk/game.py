@@ -6,7 +6,6 @@ from risk.player import Player
 from risk.game_map import GameMap
 from risk.continent import CONTINENTS
 from risk.card import *
-import matplotlib.pyplot as plt
 
 class Game:
     def __init__(self, players):

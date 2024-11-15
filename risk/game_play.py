@@ -2,7 +2,6 @@ from enum import Enum
 from risk.game import Game
 from risk.country import *
 from risk.player import Player
-from collections import defaultdict
 
 class GamePlayState(Enum):
     CARDS = 0
@@ -33,8 +32,11 @@ class GamePlay:
 
         options = self.curr_player.get_trade_in_options()
         if options:
-            print(f"Player has the following trade in options\n: {options}")
-            selected_option = int(input("Select option: "))
+            print("Player has the following trade in options:")
+            for i, x in enumerate(options):
+                print(f"{i}: {x}")
+            
+            selected_option = int(input("Select option(or -1 to skip): "))
             if selected_option != -1:
                 self.game.trade_in_cards(self.curr_player, options[selected_option])
         else:
@@ -44,16 +46,17 @@ class GamePlay:
     
     def process_draft_phase(self):
         print("\nTroop draft phase")
-        
         while self.curr_player.unassigned_soldiers > 0:
-            print(f"Player has {self.curr_player.unassigned_soldiers} unassigned soldiers")
+            print(f"\nPlayer has {self.curr_player.unassigned_soldiers} unassigned soldiers")
             position = self.game.get_player_army_summary(self.curr_player)
-            draft_options_dict = {i: x for i, x in enumerate(position)} # only for print
-            print(f"Current player position:\n {draft_options_dict}")
+            print("Current player position:")
+            for i, x in enumerate(position):
+                print(f"{i}: Territory: ({(x[0], x[1])}), Bordering Territories: {x[2]}")
 
-            selected_country_idx = int(input("Select country to assign troops: "))
-            n_soldiers = int(input("Select number of soldiers to assign: "))
+            selected_country_idx = int(input("Select country(index) to assign troops: "))
             country = position[selected_country_idx][0]
+
+            n_soldiers = int(input(f"Select number of soldiers to assign to the selected country: "))
             self.game.assign_soldiers(self.curr_player, country, n_soldiers)
             self.game.visualize()
 
@@ -63,11 +66,14 @@ class GamePlay:
         print("\nAttack phase")
         while True:
             attack_options = self.game.get_attack_options(self.curr_player)
-            attack_options_dict = {i: x for i,x in enumerate(attack_options)} # only for print
-            print(f"Attack options:\n {attack_options_dict}")
-            attack_selected = int(input("Select attack option: "))
+
+            print("Attack options:")
+            for i, x in enumerate(attack_options):
+                origin, dest = x
+                print(f"{i}: {origin} -> {dest}")
+            
+            attack_selected = int(input("Select attack option(or -1 to skip): "))
             if attack_selected == -1:
-                print('No attack selected, moving over to next phase')
                 break
 
             else:

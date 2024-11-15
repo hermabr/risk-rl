@@ -4,6 +4,7 @@ from typing import List
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 plt.ion()
 
 from risk.country import *
@@ -39,9 +40,18 @@ class GameMap(nx.Graph):
                 color_map.append(players.index(node.army.owner))
             else:
                 color_map.append('gray')
-        nx.draw(self, with_labels=True, node_color=color_map, cmap=plt.cm.tab20,
+
+        cmap = plt.cm.tab20
+        nx.draw(self, with_labels=True, node_color=color_map, cmap=cmap,
                 pos=self.positions, node_size=3000, ax=self.ax)
-        
+
+
+        legend_elements = []
+        for i, player in enumerate(players):
+            color = cmap(float(i) / max(len(players) - 1, 1))
+            legend_elements.append(Patch(facecolor=color, edgecolor='black', label=str(player)))
+
+        self.ax.legend(handles=legend_elements, title="Players", loc='best')
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
