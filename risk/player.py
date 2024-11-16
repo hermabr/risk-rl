@@ -1,7 +1,10 @@
-from __future__ import annotations
+from abc import abstractmethod
 from risk.card import *
+from risk.country import Country
+import risk.game
 
 class Player:
+    game: 'risk.game.Game'
     def __init__(self, name):
         self.name = name
         self.countries = []
@@ -39,4 +42,18 @@ class Player:
     def __str__(self):
         return self.name
 
-    
+    @abstractmethod
+    def process_cards_phase(self):
+        pass
+
+    @abstractmethod
+    def process_draft_phase(self):
+        pass
+
+    @abstractmethod
+    def process_attack_phase(self):
+        pass
+
+    @abstractmethod
+    def process_fortify_phase(self):
+        pass

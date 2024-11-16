@@ -7,29 +7,63 @@ from risk.game_map import GameMap
 from risk.continent import CONTINENTS
 from risk.card import *
 
+
+class GamePlayState(Enum):
+    CARDS = 0
+    DRAFT = 1
+    ATTACK = 2
+    FORTIFY = 3
+
 class Game:
     def __init__(self, players):
         self.players = players
-        self.countries = [Alaska, Alberta, CentralAmerica, EasternUS, Greenland, NorthwestTerritory, Ontario, Quebec, WesternUS, Venezuela, Brazil, Peru, Argentina, Iceland, GreatBritain, NorthernEurope, Scandinavia, Ukraine, SouthernEurope, WesternEurope, NorthAfrica, Egypt, EastAfrica, Congo, SouthAfrica, Madagascar, Afghanistan, China, India, Irkutsk, Japan, Kamchatka, MiddleEast, Mongolia, Siam, Siberia, Ural, Yakutsk, Indonesia, NewGuinea, WesternAustralia, EasternAustralia]
+        for player in players:
+            player.game = self
         self.game_map = GameMap()
         self.num_players = len(self.players)
-        self.assign_countries_and_initialize_armies()
-        self.curr_player = 0
-        self.card_deck = init_deck()
         self.used_cards = []
         self.country_conquered_in_round = False
-        # TODO: should add some verification that the game flow is correct/ could keep track of last player
-    
+        self.current_phase = GamePlayState(0)
+        self.current_player = players[0]
+        self.assign_countries_and_initialize_armies()
+        self.card_deck = init_deck()
+        self.visualize()
+
+    def gameplay_loop(self):
+        print('Game Started!')
+        while True:
+            match self.current_phase:
+                case GamePlayState.CARDS:
+                    self.current_player.process_cards_phase()
+                case GamePlayState.DRAFT:
+                    self.current_player.process_draft_phase()
+                case GamePlayState.ATTACK:
+                    self.current_player.process_attack_phase()
+                case GamePlayState.FORTIFY:
+                    self.current_player.process_fortify_phase()
+                case _:
+                    raise ValueError(f"Invalid phase {self.curr_phase}")
+            self.next_phase()
+
+    def next_player(self):
+        self.current_player = self.players[(self.players.index(self.current_player) + 1) % self.num_players]
+
+    def next_phase(self):
+        if self.current_phase.value == len(GamePlayState) - 1:
+            self.next_player()
+        self.current_phase = GamePlayState((self.current_phase.value + 1) % len(GamePlayState))
+
     def visualize(self):
         self.game_map.draw_map()
-    
+
     def assign_countries_and_initialize_armies(self):
         initial_armies_per_player_dict = {2: 40, 3: 35, 4: 30, 5: 25, 6: 20}
-        random.shuffle(self.countries)
+        countries = COUNTRIES
+        random.shuffle(countries)
         num_players = self.num_players
         initial_armies_per_player = initial_armies_per_player_dict[num_players]
 
-        for i, country in enumerate(self.countries):
+        for i, country in enumerate(countries):
             player = self.players[i % num_players]
             country.owner = player
             player.add_country(country)
@@ -48,20 +82,13 @@ class Game:
             for idx, country in enumerate(territories_owned):
                 country.army.n_soldiers += armies_distribution[idx]
 
-    def next_player(self):
-        if self.curr_player < self.num_players - 1:
-            self.curr_player += 1
-        else:
-            self.curr_player = 0
-    
-    
     def reinforce(self, player: Player):
         reinforcements = max(len(player.countries) // 3, 3)
 
         for continent in CONTINENTS:
             if all([country.army and country.army.owner == player for country in continent.countries]):
                 reinforcements += continent.extra_points
-        
+
         player.unassigned_soldiers += reinforcements
         print(f"{player} receives {reinforcements} reinforcements.")
 
@@ -76,10 +103,9 @@ class Game:
         ]
         summary.sort(key=lambda x: (len(x[2]), x[1]), reverse=True) # this is not the final hueristic to use for ranking
         return summary
-
     
     def assign_soldiers(self, player: Player, country: Country, n_soldiers: int):
-        assert self.players[self.curr_player] == player
+        assert self.current_player == player
         assert n_soldiers <= player.unassigned_soldiers
         assert country in player.countries
 
@@ -99,19 +125,19 @@ class Game:
         
         options.sort(key=lambda x: x[0][1] - x[1][1], reverse=True)
         return options
-        
+
     def attack(self, attacker: Player, attacker_country: Country, defender_country: Country, attacking_soldiers:int):
-        assert self.players[self.curr_player] == attacker
-        
+        assert self.current_player == attacker
+
         assert attacker_country in attacker.countries
         assert defender_country not in attacker.countries
-        
+
         assert 1 <= attacking_soldiers <= 3
         assert 1 <= attacking_soldiers <= min(3, attacker_country.army.n_soldiers - 1)
 
         assert self.game_map.has_edge(attacker_country, defender_country)
         attack_successful = self.battle(attacker_country, defender_country, attacking_soldiers)
-        
+
         if attack_successful and not self.country_conquered_in_round:
             self.draw_card(attacker)
             self.country_conquered_in_round = True
@@ -185,7 +211,7 @@ class Game:
 
         
     def fortify(self, player: Player, origin_country: Country, dest_country: Country, n_soldiers_move: int):
-        assert self.players[self.curr_player] == player
+        assert self.current_player == player
         
         assert origin_country in player.countries
         assert dest_country in player.countries
@@ -201,7 +227,7 @@ class Game:
         
 
     def draw_card(self, player: Player):
-        assert self.players[self.curr_player] == player
+        assert self.current_player == player
 
         if len(self.card_deck) == 0:
             self.card_deck = self.used_cards
@@ -212,7 +238,7 @@ class Game:
         player.cards[drawn_card.card_type].append(drawn_card)
 
     def trade_in_cards(self, player: Player, card_combination):
-        assert self.players[self.curr_player] == player
+        assert self.current_player == player
         
         trade_in_options = player.get_trade_in_options()
         assert card_combination in trade_in_options

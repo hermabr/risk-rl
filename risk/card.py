@@ -3,10 +3,16 @@ import random
 
 
 class CardType(Enum):
-    INFANTRY = 1
-    CAVALRY = 2
-    ARTILLERY = 3
+    INFANTRY = "infantry"
+    CAVALRY = "cavalry"
+    ARTILLERY = "artillery"
     #WILDCARD = 4
+
+    def __str__(self):
+        return self.value
+
+    def __repr__(self):
+        return self.value
 
 class Card:
     def __init__(self, card_type: CardType):
