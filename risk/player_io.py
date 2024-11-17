@@ -65,9 +65,9 @@ class PlayerIO(Player):
             fortify_options_ranked = self.game.get_fortify_options(self)
 
             print("\nFortify options (ranked):")
-            for idx, (origin, dest, troop_diff, dest_army_size, origin_army_size) in enumerate(fortify_options_ranked):
+            for idx, (origin, dest, origin_troop_diff, dest_troop_diff, dest_army_size, origin_army_size) in enumerate(fortify_options_ranked):
                 print(f"{idx}: Move from {origin.name} to {dest.name} | "
-                      f"Dest Troop Diff: {troop_diff} | Dest Army Size: {dest_army_size} | Origin Army Size: {origin_army_size}")
+                      f"Dest Troop Diff: {dest_troop_diff} | Dest Army Size: {dest_army_size} | Origin Army Size: {origin_army_size}")
 
             selected_option = int(input("\nSelect an option to fortify (or -1 to skip): "))
             if selected_option != -1:

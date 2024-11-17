@@ -10,7 +10,7 @@ plt.ion()
 import risk.country
 
 class GameMap(nx.Graph):
-    def __init__(self):
+    def __init__(self, display_map=True):
         super().__init__()
         self.initialize_game_map()
         self.positions = {
@@ -57,8 +57,9 @@ class GameMap(nx.Graph):
             risk.country.WesternAustralia: (7, 1),
             risk.country.EasternAustralia: (8, 0.5)
         }
-        self.fig, self.ax = plt.subplots(figsize=(18, 10))
-        plt.ion()
+        if display_map:
+            self.fig, self.ax = plt.subplots(figsize=(18, 10))
+            plt.ion()
 
     def draw_map(self):
         self.ax.clear()

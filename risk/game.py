@@ -15,12 +15,13 @@ class GamePlayState(Enum):
     FORTIFY = 3
 
 class Game:
-    def __init__(self, players, delay=True):
+    def __init__(self, players, display_map=True, delay=True):
+        self.display_map = display_map
         self.delay = delay
         self.players = players
         for player in players:
             player.game = self
-        self.game_map = GameMap()
+        self.game_map = GameMap(display_map=display_map)
         self.num_players = len(self.players)
         self.used_cards = []
         self.country_conquered_in_round = False
@@ -28,7 +29,8 @@ class Game:
         self.current_player = players[0]
         self.assign_countries_and_initialize_armies()
         self.card_deck = init_deck()
-        self.visualize()
+        if self.display_map:
+            self.visualize()
 
     def gameplay_loop(self):
         logging.info('\x1b[1m\x1b[32mGame Started!\x1b[0m')
@@ -121,7 +123,8 @@ class Game:
         country_idx = player.countries.index(country)
         player.countries[country_idx].army.n_soldiers += n_soldiers
         player.unassigned_soldiers -= n_soldiers
-        self.visualize()
+        if self.display_map:
+            self.visualize()
 
     def get_attack_options(self, player):
         options = []
@@ -161,7 +164,8 @@ class Game:
             self.draw_card(attacker)
             self.country_conquered_in_round = True
         
-        self.visualize()
+        if self.display_map:
+            self.visualize()
 
     @staticmethod
     def roll_dice(n):
@@ -282,7 +286,9 @@ class Game:
         logging.info(f"\x1b[36m{player}\x1b[0m fortifies \x1b[33m{n_soldiers_move}\x1b[0m from \x1b[35m{origin_country}\x1b[0m to \x1b[35m{dest_country}\x1b[0m")
         dest_country.army.n_soldiers += n_soldiers_move
         origin_country.army.n_soldiers -= n_soldiers_move
-        self.visualize()
+        
+        if self.display_map:
+            self.visualize()
         
     def draw_card(self, player: Player):
         assert self.current_player == player

@@ -7,8 +7,11 @@ import traceback
 
 logging_setup.init_logging()
 
-# use delay True when doing detailed debugging
-game = Game([PlayerHeuristic("Player 1"), PlayerHeuristic("Player 2"), PlayerHeuristic("Player 3"), PlayerHeuristic("Player 4")], delay=False) 
+
+players = [PlayerHeuristic("Player 1"), PlayerHeuristic("Player 2"),
+            PlayerHeuristic("Player 3"), PlayerHeuristic("Player 4")]
+
+game = Game(players, display_map=False, delay=False) 
 
 try:
     game.gameplay_loop()
