@@ -22,7 +22,10 @@ class Card:
 
     def __hash__(self):
         return hash(self.card_type)
-
+    
+    def __str__(self):
+        return self.card_type.value
+    
 def init_deck():
     deck = [Card(CardType.INFANTRY)]*14 + \
         [Card(CardType.CAVALRY)]*14 + \

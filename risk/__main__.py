@@ -1,6 +1,16 @@
 from risk.game import Game
 from risk.player_io import PlayerIO
 from risk.player_heuristic import PlayerHeuristic
+import risk.logging_setup as logging_setup
+import logging
+import traceback
 
-game = Game([PlayerIO("Player 1"), PlayerHeuristic("Player 2"), PlayerHeuristic("Player 3")])
-game.gameplay_loop()
+logging_setup.init_logging()
+
+game = Game([PlayerHeuristic("Player 1"), PlayerHeuristic("Player 2"), PlayerHeuristic("Player 3")], delay=False)
+
+try:
+    game.gameplay_loop()
+except Exception as e:
+    logging.error("An error occurred: %s", str(e))
+    logging.error("Stack trace: %s", traceback.format_exc())

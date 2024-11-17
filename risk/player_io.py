@@ -1,9 +1,11 @@
 from risk.country import *
 from risk.player import Player
+import logging
 
 class PlayerIO(Player):
     def process_cards_phase(self):
         print(f"It is {self.name}'s turn\n")
+        logging.info(f"\x1b[1m\nCards Phase - {self}\x1b[0m")
         print(f"Cards on hand: {self.get_cards()}")
 
         options = self.get_trade_in_options()
@@ -19,7 +21,9 @@ class PlayerIO(Player):
             print("Player cannot trade in any cards")
     
     def process_draft_phase(self):
-        print("\nTroop draft phase")
+        logging.info(f"\x1b[1m\nDraft Phase - {self}\x1b[0m")
+        logging.info(f"\x1b[33mUnassigned soldiers: {self.unassigned_soldiers}\x1b[0m")
+        
         while self.unassigned_soldiers > 0:
             print(f"\nPlayer has {self.unassigned_soldiers} unassigned soldiers")
             position = self.game.get_player_army_summary(self)
@@ -32,10 +36,9 @@ class PlayerIO(Player):
 
             n_soldiers = int(input(f"Select number of soldiers to assign to the selected country: "))
             self.game.assign_soldiers(self, country, n_soldiers)
-            self.game.visualize()
 
     def process_attack_phase(self):
-        print("\nAttack phase")
+        logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
         while True:
             attack_options = self.game.get_attack_options(self)
 
@@ -53,11 +56,11 @@ class PlayerIO(Player):
                 n_soldiers = attacker_country.army.n_soldiers
                 attacking_soldiers = int(input(f"Select number of soldiers(maximum {min(3, n_soldiers-1)}): "))
                 self.game.attack(self, attacker_country, defender_country, attacking_soldiers)
-    
-                self.game.visualize()
+
 
     def process_fortify_phase(self):
-        print("\nFortify phase")
+        logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
+
         while True:
             fortify_options_ranked = self.game.get_fortify_options(self)
 
@@ -72,7 +75,6 @@ class PlayerIO(Player):
                 max_soldiers = origin.army.n_soldiers - 1 
                 n_soldiers_move = int(input(f"Select move (1 to {max_soldiers}): "))
                 self.game.fortify(self, origin, dest, n_soldiers_move)
-                self.game.visualize()
             else:
                 print("No fortification option selected, moving to next phase")
                 break

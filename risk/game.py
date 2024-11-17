@@ -5,6 +5,9 @@ from risk.army import Army
 from risk.player import Player
 from risk.game_map import GameMap
 from risk.card import *
+import logging
+import time
+
 
 class GamePlayState(Enum):
     CARDS = 0
@@ -13,7 +16,8 @@ class GamePlayState(Enum):
     FORTIFY = 3
 
 class Game:
-    def __init__(self, players):
+    def __init__(self, players, delay=True):
+        self.delay = delay
         self.players = players
         for player in players:
             player.game = self
@@ -28,11 +32,14 @@ class Game:
         self.visualize()
 
     def gameplay_loop(self):
-        print('\x1b[1m\x1b[32mGame Started!\x1b[0m')
+        logging.info('\x1b[1m\x1b[32mGame Started!\x1b[0m')
         while True:
             if self.num_players == 1:
-                print(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player}\x1b[0m")
+                logging.info(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player}\x1b[0m")
                 return
+
+            if self.delay:
+                time.sleep(0.25) # to see visualization of fully simulated games
 
             match self.current_phase:
                 case GamePlayState.CARDS:
@@ -93,7 +100,7 @@ class Game:
                 reinforcements += continent.extra_points
 
         player.unassigned_soldiers += reinforcements
-        print(f"\x1b[36m{player}\x1b[0m receives \x1b[33m{reinforcements}\x1b[0m reinforcements.")
+        logging.info(f"\x1b[36m{player}\x1b[0m receives \x1b[33m{reinforcements}\x1b[0m reinforcements\n")
 
     def get_player_army_summary(self, player):
         summary = [
@@ -114,10 +121,11 @@ class Game:
         assert n_soldiers <= player.unassigned_soldiers
         assert country in player.countries
 
-        print(f"\x1b[36m{player}\x1b[0m assigns \x1b[33m{n_soldiers}\x1b[0m soldiers to \x1b[35m{country}\x1b[0m")
+        logging.info(f"\x1b[36m{player}\x1b[0m assigns \x1b[33m{n_soldiers}\x1b[0m soldiers to \x1b[35m{country}\x1b[0m")
         country_idx = player.countries.index(country)
         player.countries[country_idx].army.n_soldiers += n_soldiers
         player.unassigned_soldiers -= n_soldiers
+        self.visualize()
 
     def get_attack_options(self, player):
         options = []
@@ -156,6 +164,8 @@ class Game:
         if attack_successful and not self.country_conquered_in_round:
             self.draw_card(attacker)
             self.country_conquered_in_round = True
+        
+        self.visualize()
 
     @staticmethod
     def roll_dice(n):
@@ -163,7 +173,7 @@ class Game:
 
     # return True/False battle won
     def battle(self, attacker_country: Country, defender_country: Country, attacking_soldiers: int):
-        print(f"\n\x1b[34mBattle: \x1b[31m{attacker_country}\x1b[34m -> \x1b[32m{defender_country}\x1b[34m, attacking soldiers\x1b[0m: {attacking_soldiers}")
+        logging.info(f"\n\x1b[34mBattle: \x1b[31m{attacker_country}\x1b[34m -> \x1b[32m{defender_country}\x1b[34m, attacking soldiers\x1b[0m: {attacking_soldiers}")
 
         attacker = attacker_country.army
         defender = defender_country.army
@@ -171,8 +181,8 @@ class Game:
         attack_rolls = self.roll_dice(attacking_soldiers)
         defend_rolls = self.roll_dice(min(2, defender.n_soldiers))
 
-        print(f"\x1b[31mAttacker rolls\x1b[0m: {attack_rolls}")
-        print(f"\x1b[32mDefender rolls\x1b[0m: {defend_rolls}")
+        logging.info(f"\x1b[31mAttacker rolls\x1b[0m: {attack_rolls}")
+        logging.info(f"\x1b[32mDefender rolls\x1b[0m: {defend_rolls}")
 
         attacker_loss = 0
         defender_loss = 0
@@ -185,11 +195,11 @@ class Game:
         attacker.n_soldiers -= attacker_loss
         defender.n_soldiers -= defender_loss
 
-        print(f"\x1b[32mDefender loses \x1b[33m{defender_loss}\x1b[0m\x1b[32m soldiers\x1b[0m")
-        print(f"\x1b[31mAttacker loses \x1b[33m{attacker_loss}\x1b[0m\x1b[31m soldiers\x1b[0m")
+        logging.info(f"\x1b[32mDefender loses \x1b[33m{defender_loss}\x1b[0m\x1b[32m soldiers\x1b[0m")
+        logging.info(f"\x1b[31mAttacker loses \x1b[33m{attacker_loss}\x1b[0m\x1b[31m soldiers\x1b[0m")
 
         if defender.n_soldiers <= 0:
-            print(f"\x1b[1m\x1b[31m{defender_country} has been conquered!\x1b[0m")
+            logging.info(f"\x1b[1m\x1b[31m{defender_country} has been conquered!\x1b[0m")
             defender_country.owner.remove_country(defender_country)
 
             if len(defender_country.owner.countries) == 0:
@@ -263,11 +273,11 @@ class Game:
         assert origin_country in origin_options
         assert dest_country in dest_options
         
-        print(f"\x1b[36m{player}\x1b[0m fortifies \x1b[33m{n_soldiers_move}\x1b[0m from \x1b[35m{origin_country}\x1b[0m to \x1b[35m{dest_country}\x1b[0m")
+        logging.info(f"\x1b[36m{player}\x1b[0m fortifies \x1b[33m{n_soldiers_move}\x1b[0m from \x1b[35m{origin_country}\x1b[0m to \x1b[35m{dest_country}\x1b[0m")
         dest_country.army.n_soldiers += n_soldiers_move
         origin_country.army.n_soldiers -= n_soldiers_move
+        self.visualize()
         
-
     def draw_card(self, player: Player):
         assert self.current_player == player
 
@@ -292,5 +302,7 @@ class Game:
         for card in card_combination:
             cards_played.append(player.cards[card.card_type].pop())
         
-        print(f"Player: \x1b[36m{player}\x1b[0m plays cards: \x1b[33m{card_combination}\x1b[0m")
+        
+        cards_str = ', '.join([str(x) for x in card_combination])
+        logging.info(f"\x1b[36m{player}\x1b[0m plays cards: \x1b[33m ({cards_str})\x1b[0m")
         self.used_cards += cards_played
