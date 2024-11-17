@@ -1,7 +1,6 @@
 from enum import Enum
 import random
 
-
 class CardType(Enum):
     INFANTRY = "infantry"
     CAVALRY = "cavalry"

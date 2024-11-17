@@ -4,9 +4,7 @@ from risk.country import *
 from risk.army import Army
 from risk.player import Player
 from risk.game_map import GameMap
-from risk.continent import CONTINENTS
 from risk.card import *
-
 
 class GamePlayState(Enum):
     CARDS = 0
@@ -30,8 +28,12 @@ class Game:
         self.visualize()
 
     def gameplay_loop(self):
-        print('Game Started!')
+        print('\x1b[1m\x1b[32mGame Started!\x1b[0m')
         while True:
+            if self.num_players == 1:
+                print(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player}\x1b[0m")
+                return
+
             match self.current_phase:
                 case GamePlayState.CARDS:
                     self.current_player.process_cards_phase()
@@ -47,6 +49,7 @@ class Game:
 
     def next_player(self):
         self.current_player = self.players[(self.players.index(self.current_player) + 1) % self.num_players]
+        self.country_conquered_in_round = False
 
     def next_phase(self):
         if self.current_phase.value == len(GamePlayState) - 1:
@@ -90,41 +93,53 @@ class Game:
                 reinforcements += continent.extra_points
 
         player.unassigned_soldiers += reinforcements
-        print(f"{player} receives {reinforcements} reinforcements.")
+        print(f"\x1b[36m{player}\x1b[0m receives \x1b[33m{reinforcements}\x1b[0m reinforcements.")
 
     def get_player_army_summary(self, player):
         summary = [
             (
                 c,
                 c.army.n_soldiers,
-                [(n, n.army.n_soldiers) for n in self.game_map.neighbors(c) if n not in player.countries]
+                [(n, n.army.n_soldiers) for n in self.game_map.neighbors(c) if n not in player.countries],
+                sum(n.army.n_soldiers for n in self.game_map.neighbors(c) if n not in player.countries) / c.army.n_soldiers # border threat ratio
             )
             for c in player.countries
         ]
-        summary.sort(key=lambda x: (len(x[2]), x[1]), reverse=True) # this is not the final hueristic to use for ranking
-        return summary
+        summary.sort(key=lambda x: x[3], reverse=True)
+        return [(c[0], c[1], c[2]) for c in summary]
+
     
     def assign_soldiers(self, player: Player, country: Country, n_soldiers: int):
         assert self.current_player == player
         assert n_soldiers <= player.unassigned_soldiers
         assert country in player.countries
 
+        print(f"\x1b[36m{player}\x1b[0m assigns \x1b[33m{n_soldiers}\x1b[0m soldiers to \x1b[35m{country}\x1b[0m")
         country_idx = player.countries.index(country)
         player.countries[country_idx].army.n_soldiers += n_soldiers
         player.unassigned_soldiers -= n_soldiers
 
     def get_attack_options(self, player):
-        options = [] # tuple ((country_from, n_soldiers), (country_to_attack, n_soldiers))
+        options = []
         for country in player.countries:
             if country.army.n_soldiers == 1:
                 continue
-            neighbor_countries = self.game_map.neighbors(country)
-            for n in neighbor_countries:
-                if n not in player.countries:
-                    options.append(((country, country.army.n_soldiers), (n, n.army.n_soldiers)))
+            for neighbor in self.game_map.neighbors(country):
+                if neighbor not in player.countries:
+                    continent = neighbor.continent
+                    remaining_enemy_countries = [
+                        c for c in continent.countries if c.owner != player and c != neighbor
+                    ]
+                    troop_difference = country.army.n_soldiers - neighbor.army.n_soldiers
+
+                    # can secure an continent with an attack where there is a troop advantage
+                    will_secure_continent = len(remaining_enemy_countries) == 0 and troop_difference > 0
+                    options.append(
+                        ((country, country.army.n_soldiers), (neighbor, neighbor.army.n_soldiers), will_secure_continent, troop_difference)
+                    )
         
-        options.sort(key=lambda x: x[0][1] - x[1][1], reverse=True)
-        return options
+        options.sort(key=lambda x: (x[2], x[3]), reverse=True) # prioritize oppotunity to secure continent first
+        return [((from_country, from_soldiers), (to_country, to_soldiers)) for ((from_country, from_soldiers), (to_country, to_soldiers), _, _) in options]
 
     def attack(self, attacker: Player, attacker_country: Country, defender_country: Country, attacking_soldiers:int):
         assert self.current_player == attacker
@@ -148,6 +163,8 @@ class Game:
 
     # return True/False battle won
     def battle(self, attacker_country: Country, defender_country: Country, attacking_soldiers: int):
+        print(f"\n\x1b[34mBattle: \x1b[31m{attacker_country}\x1b[34m -> \x1b[32m{defender_country}\x1b[34m, attacking soldiers\x1b[0m: {attacking_soldiers}")
+
         attacker = attacker_country.army
         defender = defender_country.army
 
@@ -168,12 +185,19 @@ class Game:
         attacker.n_soldiers -= attacker_loss
         defender.n_soldiers -= defender_loss
 
-        print(f'Defender loses {defender_loss} soldiers')
-        print(f'Attacker loses {attacker_loss} soldiers')
+        print(f"\x1b[32mDefender loses \x1b[33m{defender_loss}\x1b[0m\x1b[32m soldiers\x1b[0m")
+        print(f"\x1b[31mAttacker loses \x1b[33m{attacker_loss}\x1b[0m\x1b[31m soldiers\x1b[0m")
 
         if defender.n_soldiers <= 0:
-            print(f"{defender_country} has been conquered!")
+            print(f"\x1b[1m\x1b[31m{defender_country} has been conquered!\x1b[0m")
             defender_country.owner.remove_country(defender_country)
+
+            if len(defender_country.owner.countries) == 0:
+                eliminated_player = defender_country.owner
+                eliminated_player_idx = self.players.index(eliminated_player)
+                self.players.pop(eliminated_player_idx)
+                self.num_players -= 1
+
             defender_country.owner = attacker_country.owner
             attacker_country.owner.add_country(defender_country)
 
@@ -193,23 +217,37 @@ class Game:
     # two countries are connected if there is a path between them
     # and all countries along that path are owned by the player
     def get_fortify_options(self, player: Player):
-        player_countries = player.countries
-        player_subgraph = self.game_map.get_subgraph(player_countries)
-        fortify_options = {}
+        player_subgraph = self.game_map.get_subgraph(player.countries)
+        ranked_options = []
 
-        connected_components = nx.connected_components(player_subgraph)
-        for component in connected_components:
+        for component in nx.connected_components(player_subgraph):
             component_countries = list(component)
-
-            for country in component_countries:
-                if country.army.n_soldiers < 2:
+            for origin_country in component_countries:
+                if origin_country.army.n_soldiers < 2:
                     continue
-                other_countries = [c for c in component_countries if c != country]
-                fortify_options[country] = other_countries
+                
+                for dest_country in component_countries:
+                    if dest_country == origin_country:
+                        continue
+                    
+                    neighbors = self.game_map.neighbors(dest_country)
+                    enemy_neighbors = [n for n in neighbors if n.owner != player]
+                    if enemy_neighbors:
+                        troop_diff = min(dest_country.army.n_soldiers - n.army.n_soldiers for n in enemy_neighbors)
+                    else:
+                        troop_diff = float('inf')
+                    
+                    ranked_options.append((
+                        origin_country,
+                        dest_country,
+                        troop_diff,
+                        dest_country.army.n_soldiers,
+                        origin_country.army.n_soldiers
+                    ))
 
-        return fortify_options
-
-        
+        ranked_options.sort(key=lambda x: (x[2], x[3], -x[4]))
+        return ranked_options
+ 
     def fortify(self, player: Player, origin_country: Country, dest_country: Country, n_soldiers_move: int):
         assert self.current_player == player
         
@@ -219,9 +257,13 @@ class Game:
         assert n_soldiers_move <= origin_country.army.n_soldiers
 
         fortify_options = self.get_fortify_options(player)
-        assert origin_country in fortify_options.keys()
-        assert dest_country in fortify_options[origin_country]
+        origin_options = [x[0] for x in fortify_options]
+        dest_options = [x[1] for x in fortify_options]
+
+        assert origin_country in origin_options
+        assert dest_country in dest_options
         
+        print(f"\x1b[36m{player}\x1b[0m fortifies \x1b[33m{n_soldiers_move}\x1b[0m from \x1b[35m{origin_country}\x1b[0m to \x1b[35m{dest_country}\x1b[0m")
         dest_country.army.n_soldiers += n_soldiers_move
         origin_country.army.n_soldiers -= n_soldiers_move
         
@@ -249,5 +291,6 @@ class Game:
         cards_played = []
         for card in card_combination:
             cards_played.append(player.cards[card.card_type].pop())
-
+        
+        print(f"Player: \x1b[36m{player}\x1b[0m plays cards: \x1b[33m{card_combination}\x1b[0m")
         self.used_cards += cards_played

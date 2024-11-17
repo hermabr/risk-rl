@@ -34,10 +34,6 @@ class Player:
                 options.append([Card(k)]*3)
         
         return options
-
-    def print_summary(self):
-        for i, country in enumerate(self.countries):
-            print(f"{i + 1}: {country} (Current soldiers: {country.army.n_soldiers})")
             
     def __str__(self):
         return self.name

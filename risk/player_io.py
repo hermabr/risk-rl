@@ -1,10 +1,9 @@
-from enum import Enum
 from risk.country import *
 from risk.player import Player
 
 class PlayerIO(Player):
     def process_cards_phase(self):
-        print(f"It is {self.name}'s turn")
+        print(f"It is {self.name}'s turn\n")
         print(f"Cards on hand: {self.get_cards()}")
 
         options = self.get_trade_in_options()
@@ -40,12 +39,12 @@ class PlayerIO(Player):
         while True:
             attack_options = self.game.get_attack_options(self)
 
-            print("Attack options:")
+            print("\nAttack options:")
             for i, x in enumerate(attack_options):
                 origin, dest = x
                 print(f"{i}: {origin} -> {dest}")
             
-            attack_selected = int(input("Select attack option(or -1 to skip): "))
+            attack_selected = int(input("\nSelect attack option(or -1 to skip): "))
             if attack_selected == -1:
                 break
 
@@ -57,52 +56,22 @@ class PlayerIO(Player):
     
                 self.game.visualize()
 
-    def rank_fortify_options(self, fortify_options):
-        dest_countries = set(dest for _, dest in fortify_options)
-
-        dest_country_info = {
-            dest_country: {
-                'army_size': dest_country.army.n_soldiers,
-                'troop_diff': float('inf') 
-            }
-            for dest_country in dest_countries
-        }
-
-        for dest_country in dest_countries:
-            neighbors = self.game.game_map.neighbors(dest_country)
-            enemy_neighbors = [n for n in neighbors if n.owner != self]
-            if enemy_neighbors:
-                min_troop_diff = min(dest_country.army.n_soldiers - n.army.n_soldiers for n in enemy_neighbors)
-                dest_country_info[dest_country]['troop_diff'] = min_troop_diff
-
-        ranked_options = []
-        for origin_country, dest_country in fortify_options:
-            info = dest_country_info[dest_country]
-            troop_diff = info['troop_diff']
-            army_size = info['army_size']
-            ranked_options.append((origin_country, dest_country, troop_diff, army_size, origin_country.army.n_soldiers))
-
-        ranked_options.sort(key=lambda x: (x[2], x[3], -x[4]))
-        return ranked_options
-
     def process_fortify_phase(self):
+        print("\nFortify phase")
         while True:
-            fortify_options_dict = self.game.get_fortify_options(self)
-            fortify_options = [(origin, dest) for origin, dests in fortify_options_dict.items() for dest in dests]
-            fortify_options_ranked = self.rank_fortify_options(fortify_options)
+            fortify_options_ranked = self.game.get_fortify_options(self)
 
-            print("Fortify options (ranked):")
+            print("\nFortify options (ranked):")
             for idx, (origin, dest, troop_diff, dest_army_size, origin_army_size) in enumerate(fortify_options_ranked):
                 print(f"{idx}: Move from {origin.name} to {dest.name} | "
                       f"Dest Troop Diff: {troop_diff} | Dest Army Size: {dest_army_size} | Origin Army Size: {origin_army_size}")
 
-            selected_option = int(input("Select an option to fortify (or -1 to skip): "))
+            selected_option = int(input("\nSelect an option to fortify (or -1 to skip): "))
             if selected_option != -1:
                 origin, dest, *_ = fortify_options_ranked[selected_option]
                 max_soldiers = origin.army.n_soldiers - 1 
                 n_soldiers_move = int(input(f"Select move (1 to {max_soldiers}): "))
                 self.game.fortify(self, origin, dest, n_soldiers_move)
-                print(f"Moved {n_soldiers_move} soldiers from {origin.name} to {dest.name}.")
                 self.game.visualize()
             else:
                 print("No fortification option selected, moving to next phase")
