@@ -68,6 +68,11 @@ class GameMap(nx.Graph):
             if node.army and node.army.owner:
                 if node.army.owner not in players:
                     players.append(node.army.owner)
+
+        players = sorted(players, key=lambda p: str(p))
+        color_map = []
+        for node in self.nodes():
+            if node.army and node.army.owner:
                 color_map.append(players.index(node.army.owner))
             else:
                 color_map.append('gray')

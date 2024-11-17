@@ -6,7 +6,6 @@ from risk.player import Player
 from risk.game_map import GameMap
 from risk.card import *
 import logging
-import time
 
 
 class GamePlayState(Enum):
@@ -37,9 +36,6 @@ class Game:
             if self.num_players == 1:
                 logging.info(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player}\x1b[0m")
                 return
-
-            if self.delay:
-                time.sleep(0.25) # to see visualization of fully simulated games
 
             match self.current_phase:
                 case GamePlayState.CARDS:
@@ -204,6 +200,8 @@ class Game:
 
             if len(defender_country.owner.countries) == 0:
                 eliminated_player = defender_country.owner
+                logging.info(f"\n{'!'*40}\n{eliminated_player} has been eliminated\n{'!' *40}\n")
+
                 eliminated_player_idx = self.players.index(eliminated_player)
                 self.players.pop(eliminated_player_idx)
                 self.num_players -= 1
@@ -235,27 +233,35 @@ class Game:
             for origin_country in component_countries:
                 if origin_country.army.n_soldiers < 2:
                     continue
+
+                origin_neighbors = self.game_map.neighbors(origin_country)
+                origin_enemy_neighbors = [n for n in origin_neighbors if n.owner != player]
+                if origin_enemy_neighbors:
+                    origin_troop_diff = min(origin_country.army.n_soldiers - n.army.n_soldiers for n in origin_enemy_neighbors)
+                else:
+                    origin_troop_diff = float('inf')
                 
                 for dest_country in component_countries:
                     if dest_country == origin_country:
                         continue
                     
-                    neighbors = self.game_map.neighbors(dest_country)
-                    enemy_neighbors = [n for n in neighbors if n.owner != player]
-                    if enemy_neighbors:
-                        troop_diff = min(dest_country.army.n_soldiers - n.army.n_soldiers for n in enemy_neighbors)
+                    dest_neighbors = self.game_map.neighbors(dest_country)
+                    dest_enemy_neighbors = [n for n in dest_neighbors if n.owner != player]
+                    if dest_enemy_neighbors:
+                        dest_troop_diff = min(dest_country.army.n_soldiers - n.army.n_soldiers for n in dest_enemy_neighbors)
                     else:
-                        troop_diff = float('inf')
+                        dest_troop_diff = float('inf')
                     
                     ranked_options.append((
                         origin_country,
                         dest_country,
-                        troop_diff,
-                        dest_country.army.n_soldiers,
-                        origin_country.army.n_soldiers
+                        origin_troop_diff,
+                        dest_troop_diff,
+                        origin_country.army.n_soldiers,
+                        dest_country.army.n_soldiers
                     ))
 
-        ranked_options.sort(key=lambda x: (x[2], x[3], -x[4]))
+        ranked_options.sort(key=lambda x: (x[3], -x[5], -x[2], -x[4]))
         return ranked_options
  
     def fortify(self, player: Player, origin_country: Country, dest_country: Country, n_soldiers_move: int):
