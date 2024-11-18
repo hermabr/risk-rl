@@ -9,9 +9,10 @@ logging_setup.init_logging()
 
 
 players = [PlayerHeuristic("Player 1"), PlayerHeuristic("Player 2"),
-            PlayerHeuristic("Player 3"), PlayerHeuristic("Player 4")]
+            PlayerHeuristic("Player 3"), PlayerHeuristic("Player 4"),
+            PlayerHeuristic("Player 5")]
 
-game = Game(players, display_map=False, delay=False) 
+game = Game(players, display_map=True, delay=False) 
 
 try:
     game.gameplay_loop()

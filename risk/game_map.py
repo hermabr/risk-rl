@@ -5,13 +5,15 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+import matplotlib.colors as mcolors
 plt.ion()
 
 import risk.country
 
 class GameMap(nx.Graph):
-    def __init__(self, display_map=True):
+    def __init__(self, display_map=True, player_colors=None):
         super().__init__()
+        self.player_colors = player_colors
         self.initialize_game_map()
         self.positions = {
             risk.country.Alaska: (-2, 6),
@@ -64,21 +66,22 @@ class GameMap(nx.Graph):
     def draw_map(self):
         self.ax.clear()
         color_map = []
-        players = []
-        for node in self.nodes():
-            if node.army and node.army.owner:
-                if node.army.owner not in players:
-                    players.append(node.army.owner)
+        players_present = set()
 
-        players = sorted(players, key=lambda p: str(p))
-        color_map = []
         for node in self.nodes():
             if node.army and node.army.owner:
-                color_map.append(players.index(node.army.owner))
+                players_present.add(node.army.owner)
+
+        players_present = sorted(players_present, key=lambda p: str(p))
+        for node in self.nodes():
+            if node.army and node.army.owner:
+                color_map.append(self.player_colors.get(node.army.owner, 'gray'))
             else:
                 color_map.append('gray')
 
-        cmap = plt.cm.tab20
+        unique_colors = list(set(color_map))
+        cmap = mcolors.ListedColormap(unique_colors)
+
         nx.draw(
             self,
             with_labels=True,
@@ -90,9 +93,9 @@ class GameMap(nx.Graph):
         )
 
         legend_elements = []
-        for i, player in enumerate(players):
-            color = cmap(float(i) / max(len(players) - 1, 1))
-            legend_elements.append(Patch(facecolor=color, edgecolor='black', label=str(player)))
+        for player, color in self.player_colors.items():
+            if player in players_present:
+                legend_elements.append(Patch(facecolor=color, edgecolor='black', label=str(player)))
 
         self.ax.legend(handles=legend_elements, title="Players", loc='best')
         self.fig.canvas.draw()

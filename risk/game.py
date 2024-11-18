@@ -6,13 +6,23 @@ from risk.player import Player
 from risk.game_map import GameMap
 from risk.card import *
 import logging
+import matplotlib.colors as mcolors
 
+COLOR_PALETTE = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.CSS4_COLORS.values())
 
 class GamePlayState(Enum):
     CARDS = 0
     DRAFT = 1
     ATTACK = 2
     FORTIFY = 3
+
+# this ensures that each player has the same color on the map plot
+# throughout the game
+def assign_unique_colors(players: List[Player]) -> dict:
+    color_mapping = {}
+    for i, player in enumerate(players):
+        color_mapping[player] = COLOR_PALETTE[i % len(COLOR_PALETTE)]
+    return color_mapping
 
 class Game:
     def __init__(self, players, display_map=True, delay=True):
@@ -21,7 +31,10 @@ class Game:
         self.players = players
         for player in players:
             player.game = self
-        self.game_map = GameMap(display_map=display_map)
+            
+        player_colors = assign_unique_colors(self.players)
+        self.game_map = GameMap(display_map=display_map, player_colors=player_colors)
+        
         self.num_players = len(self.players)
         self.used_cards = []
         self.country_conquered_in_round = False
@@ -51,6 +64,11 @@ class Game:
                 case _:
                     raise ValueError(f"Invalid phase {self.curr_phase}")
             self.next_phase()
+    
+    def visualize(self):
+        self.game_map.draw_map()
+
+    
 
     def next_player(self):
         self.current_player = self.players[(self.players.index(self.current_player) + 1) % self.num_players]
@@ -60,9 +78,6 @@ class Game:
         if self.current_phase.value == len(GamePlayState) - 1:
             self.next_player()
         self.current_phase = GamePlayState((self.current_phase.value + 1) % len(GamePlayState))
-
-    def visualize(self):
-        self.game_map.draw_map()
 
     def assign_countries_and_initialize_armies(self):
         initial_armies_per_player_dict = {2: 40, 3: 35, 4: 30, 5: 25, 6: 20}
