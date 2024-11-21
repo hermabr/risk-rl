@@ -38,6 +38,9 @@ class Player:
     def __str__(self):
         return self.name
 
+    def __hash__(self):
+        return hash(self.name)
+
     @abstractmethod
     def process_cards_phase(self):
         pass

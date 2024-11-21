@@ -7,6 +7,8 @@ from risk.game_map import GameMap
 from risk.card import *
 import logging
 import matplotlib.colors as mcolors
+import numpy as np
+import bisect
 
 COLOR_PALETTE = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.CSS4_COLORS.values())
 
@@ -36,6 +38,8 @@ class Game:
         self.game_map = GameMap(display_map=display_map, player_colors=player_colors)
         
         self.num_players = len(self.players)
+        self.num_players_start = self.num_players
+        
         self.used_cards = []
         self.country_conquered_in_round = False
         self.current_phase = GamePlayState(0)
@@ -44,6 +48,73 @@ class Game:
         self.card_deck = init_deck()
         if self.display_map:
             self.visualize()
+        
+        # setup for game state encoding
+        self.player_idx_map = {p:i for i,p in enumerate(self.players)}
+        self.country_idx_map = {c:i for i,c in enumerate(COUNTRIES)}
+        self.num_countries = len(COUNTRIES)
+
+        # setup for attack option encoding
+        self.border_map = {c: list(self.game_map.neighbors(c)) for c in COUNTRIES}
+        offset = 0
+        self.attack_options_offset_vals = []
+        self.attack_options_offset_map = {}
+        for k, v in self.border_map.items():
+            self.attack_options_offset_map[k] = offset
+            self.attack_options_offset_vals.append(offset)
+            offset += 3*len(v)
+        
+        self.total_attack_options_cnt = offset + 1 # add skip action
+        self.attack_options_offset_map_rev = {v: k for k, v in self.attack_options_offset_map.items()}
+
+    
+    def get_game_state_encoded(self):
+        # this encodes who country ownership and soldiers per country
+        game_board_state = np.zeros((self.num_players_start + 1) * self.num_countries)
+        for p in self.players:
+            player_idx = self.player_idx_map[p]
+            for c in p.countries:
+                country_idx = self.country_idx_map[c]
+                game_board_state[country_idx * (self.num_players + 1) + player_idx] = 1
+                game_board_state[country_idx * (self.num_players + 1) + self.num_players] = c.army.n_soldiers
+        
+        return game_board_state
+    
+    def get_attack_options_encoded(self, player: Player):
+        attack_options_array = np.zeros(self.total_attack_options_cnt)
+        for country in player.countries:
+            n_soldiers = country.army.n_soldiers
+            if n_soldiers == 1:
+                continue
+
+            country_offset = self.attack_options_offset_map[country]
+            for border_country in self.game_map.neighbors(country):
+                if border_country not in player.countries:
+                    border_country_offset = self.border_map[country].index(border_country)
+                    attack_options_array[country_offset + border_country_offset] = 1
+                    if n_soldiers > 2:
+                        attack_options_array[country_offset + border_country_offset + 1] = 1
+                    if n_soldiers > 3:
+                        attack_options_array[country_offset + border_country_offset + 2] = 1
+        
+        attack_options_array[-1] = 1 # skip option
+
+        return attack_options_array
+
+    def decode_attack_option(self, attack_option_idx):
+        if attack_option_idx == self.total_attack_options_cnt - 1:
+            return None, None, -1
+
+        pos = bisect.bisect_right(self.attack_options_offset_vals, attack_option_idx)
+        country_offset = self.attack_options_offset_vals[pos - 1]
+        diff = attack_option_idx - country_offset
+        bordering_country_idx = diff // 3
+        n_soldiers = (diff % 3) + 1
+
+        attack_country = self.attack_options_offset_map_rev[country_offset]
+        defend_country = self.border_map[attack_country][bordering_country_idx]
+
+        return attack_country, defend_country, n_soldiers
 
     def gameplay_loop(self):
         logging.info('\x1b[1m\x1b[32mGame Started!\x1b[0m')
@@ -67,8 +138,6 @@ class Game:
     
     def visualize(self):
         self.game_map.draw_map()
-
-    
 
     def next_player(self):
         self.current_player = self.players[(self.players.index(self.current_player) + 1) % self.num_players]
