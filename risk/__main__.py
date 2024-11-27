@@ -13,12 +13,13 @@ import risk.logging_setup as logging_setup
 import logging
 import traceback
 
+from risk.player_random import PlayerRandom
+
 logging_setup.init_logging()
 
-# +
-
 if USE_LLM:
-    default_model_path = "meta-llama/Llama-3.2-3B"
+    #  default_model_path = "meta-llama/Llama-3.2-3B"
+    default_model_path = "meta-llama/Llama-3.1-8B"
     try:
         parser = argparse.ArgumentParser()
         parser.add_argument("--model_path", type=str, default=default_model_path)
@@ -46,15 +47,22 @@ if USE_LLM:
 else:
     pass
 
-# +
-
-players = [
-    PlayerHeuristic("Player 1"),
-    PlayerHeuristic("Player 2"),
-    PlayerLLM("Player 3", model, tokenizer, llm_number_tokens) if USE_LLM else PlayerHeuristic("Player 3"),
-    PlayerHeuristic("Player 4"),
-    PlayerHeuristic("Player 5"),
-]
+if USE_LLM:
+    players = [
+        PlayerRandom("Player 1"),
+        PlayerRandom("Player 2"),
+        PlayerLLM("Player 3", model, tokenizer, llm_number_tokens),
+        PlayerRandom("Player 4"),
+        PlayerRandom("Player 5"),
+    ]
+else:
+    players = [
+        PlayerHeuristic("Player 1"),
+        PlayerHeuristic("Player 2"),
+        PlayerHeuristic("Player 3"),
+        PlayerHeuristic("Player 4"),
+        PlayerHeuristic("Player 5"),
+    ]
 
 game = Game(players, display_map=False, delay=False) 
 

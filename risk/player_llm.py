@@ -90,22 +90,22 @@ class PlayerLLM(Player):
         return game_state
 
     def process_cards_phase(self):
-        from IPython.terminal.embed import embed
-        embed(header="")
-        input("Exit")
-        print(f"It is {self.name}'s turn\n")
         logging.info(f"\x1b[1m\nCards Phase - {self}\x1b[0m")
         print(f"Cards on hand: {self.get_cards()}")
 
-        options = self.get_trade_in_options()
-        if options:
-            print("Player has the following trade in options:")
-            for i, x in enumerate(options):
-                print(f"{i}: {x}")
+        while options := self.get_trade_in_options():
+            text_state = self._get_textual_overview()
+            choices = ["Swap in " + '+'.join([str(card) for card in option]) for option in options]
 
-            selected_option = int(input("Select option(or -1 to skip): "))
-            if selected_option != -1:
-                self.game.trade_in_cards(self, options[selected_option])
+            choice_skip_swap_in = self._get_choice_probabilities(text_state + "Possible swap in options:\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(choices)]) + "\nDo you want to swap in cards or skip?", ["Swap in", "Skip"])
+            if choice_skip_swap_in == "Skip":
+                break
+
+            if len(options) > 1:
+                choice = self._get_choice_probabilities(text_state + "Which of these options do you want to swap in?\n", choices).split()
+            else:
+                choice = choices[0]
+            self.game.trade_in_cards(self, options[choices.index(choice)])
         else:
             print("Player cannot trade in any cards")
 
@@ -135,6 +135,8 @@ class PlayerLLM(Player):
         print(sorted(total_solders_per_owner.items()))
         while True:
             text_state = self._get_textual_overview()
+            if not self.game.country_conquered_in_round:
+                text_state += "\nNo countries were conquered in the this round. Attack to get bonus.\n"
             text_state += "Attack options:\n"
 
             skip_or_attack_text = text_state
@@ -181,11 +183,16 @@ class PlayerLLM(Player):
             for (origin_country, dest_country, origin_troop_diff, dest_troop_diff, origin_country.army.n_soldiers, dest_country.army.n_soldiers) in sorted(self.game.get_fortify_options(self)):
                 fortify_choices += [f"Move soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldier"]
                 fortify_from_to += [(origin_country, dest_country)]
+            if len(fortify_choices) == 0:
+                break
             skip_or_fortify_text = text_state + "\n".join(fortify_choices) + "\nDo we want to skip or fortify?"
             skip_or_fortify_choice = self._get_choice_probabilities(skip_or_fortify_text, ["Skip","Fortify"])
             if skip_or_fortify_choice == "Skip":
                 break
-            fortify_choice = self._get_choice_probabilities(text_state, fortify_choices)
+            if len(fortify_choices) == 1:
+                fortify_choice = fortify_choices[0]
+            else:
+                fortify_choice = self._get_choice_probabilities(text_state, fortify_choices)
             origin_country, dest_country = fortify_from_to[fortify_choices.index(fortify_choice)]
             number_of_soldiers_to_move = self._get_textual_overview() + f"\n{self.name} (you) are moving soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldiers"
             if origin_country.army.n_soldiers > 1:
