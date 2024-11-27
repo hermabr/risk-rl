@@ -42,13 +42,15 @@ class PlayerLLM(Player):
             return probabilities
 
         final_probabilities = defaultdict(float)
-        assert len(choices) <= 99
+        #  assert len(choices) <= 99
 
         for _ in tqdm(range(NUM_SEEDS), desc="choosing", leave=False):
             self.current_seed += 1
             random.seed(self.current_seed)
             choices = sorted(choices)
             random.shuffle(choices)
+            if len(choices) >= 100:
+                choices = choices[:99]
             prompt_with_choices = prompt + "\n\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(choices)]) + "\n\nChoice: "
 
             probabilities = get_raw_probabilities(prompt_with_choices)
@@ -74,7 +76,7 @@ class PlayerLLM(Player):
         return selected_choice
 
     def _get_textual_overview(self):
-        game_state = "Regions:"
+        game_state = f"You are an expert risk board game player and you are {self.name}.\n\nRegions:"
         total_solders_per_owner = defaultdict(int)
         for country in self.game.countries:
             game_state += f"{country.name}: {country.army.n_soldiers} soldiers owned by {country.owner}\n"
@@ -137,6 +139,8 @@ class PlayerLLM(Player):
             text_state = self._get_textual_overview()
             if not self.game.country_conquered_in_round:
                 text_state += "\nNo countries were conquered in the this round. Attack to get bonus.\n"
+            else:
+                text_state += "\nYou have already conquered country in round to achieve bonus.\n"
             text_state += "Attack options:\n"
 
             skip_or_attack_text = text_state
