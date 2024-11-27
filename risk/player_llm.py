@@ -15,8 +15,11 @@ class PlayerLLM(Player):
         self.model = model
         self.tokenizer = tokenizer
         self.llm_number_tokens = llm_number_tokens
+        self.current_seed = 0
 
-    def _get_choice_probabilities(self, prompt, choices, NUM_SEEDS=10):
+    def _get_choice_probabilities(self, prompt, choices, NUM_SEEDS=5):
+        if len(choices) == 2:
+            NUM_SEEDS = min(NUM_SEEDS, 2)
         # we use num seeds to get a more stable estimate of the probabilities, since the llm is biased towards selecting the first option
         def get_raw_probabilities(prompt):
             tokenized_prompt = self.tokenizer(prompt, return_tensors="pt")
@@ -41,8 +44,9 @@ class PlayerLLM(Player):
         final_probabilities = defaultdict(float)
         assert len(choices) <= 99
 
-        for seed in tqdm(range(NUM_SEEDS), desc="choosing", leave=False):
-            random.seed(seed)
+        for _ in tqdm(range(NUM_SEEDS), desc="choosing", leave=False):
+            self.current_seed += 1
+            random.seed(self.current_seed)
             choices = sorted(choices)
             random.shuffle(choices)
             prompt_with_choices = prompt + "\n\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(choices)]) + "\n\nChoice: "
@@ -60,17 +64,14 @@ class PlayerLLM(Player):
                 #  print(f"{i}) {choices[i-1]}: {probabilities[0, all_number_tokens[i]].item()/total_probability_mass:.1%}")
                 final_probabilities[choices[i-1]] += probabilities[0, self.llm_number_tokens[i]].item()/total_probability_mass / NUM_SEEDS
 
-            for i in range(1,1+len(choices)//10):
-                probabilities = get_raw_probabilities(prompt_with_choices + f"{i}")
+        #  return sorted(final_probabilities.items(), key=lambda x: -x[1])
+        total_mass = sum(final_probabilities.values())
+        assert abs(total_mass - 1) < 0.01
 
-                total_digit_mass = 0
+        choices, probabilities = zip(*final_probabilities.items())
+        selected_choice = random.choices(choices, weights=probabilities, k=1)[0]
 
-                for digit in range(len(choices)%10+1 if i == len(choices)//10 else 10):
-                    total_digit_mass += probabilities[0, self.llm_number_tokens[digit]].item()
-
-                assert total_digit_mass <= 0.01
-
-        return sorted(final_probabilities.items(), key=lambda x: -x[1])
+        return selected_choice
 
     def _get_textual_overview(self):
         game_state = "Regions:"
@@ -144,18 +145,18 @@ class PlayerLLM(Player):
             sorted_choices = sorted(attack_choices)
             random.shuffle(sorted_choices)
             skip_or_attack_text += "\n".join(sorted_choices)
-            #  choice_probabilities = self._get_choice_probabilities(skip_or_attack_text, ["Skip","Attack"], NUM_SEEDS=2)
-            choice_probabilities = self._get_choice_probabilities(skip_or_attack_text, ["Skip","Attack"], NUM_SEEDS=1)
-            if choice_probabilities[0][0] == "Skip":
+            choice_probabilities = self._get_choice_probabilities(skip_or_attack_text, ["Skip","Attack"])
+            if choice_probabilities == "Skip":
                 break
-            choice_probabilities = self._get_choice_probabilities(text_state, attack_choices, NUM_SEEDS=1)
+            choice_probabilities = self._get_choice_probabilities(text_state, attack_choices)
 
-            attacker_country, defender_country = attack_defence_countries[attack_choices.index(choice_probabilities[0][0])]
+            attacker_country, defender_country = attack_defence_countries[attack_choices.index(choice_probabilities)]
 
             n_soldiers = attacker_country.army.n_soldiers
 
             if n_soldiers-1 > 1:
-                attacking_soldiers = int(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x} soldiers" for x in range(min(3, n_soldiers-1))], NUM_SEEDS=1)[0][0].split()[1])
+                print(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))]))
+                attacking_soldiers = int(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x} soldiers" for x in range(min(3, n_soldiers-1))]).split()[1])
             else:
                 attacking_soldiers = 1
 
@@ -174,14 +175,14 @@ class PlayerLLM(Player):
                 fortify_choices += [f"Move soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldier"]
                 fortify_from_to += [(origin_country, dest_country)]
             skip_or_fortify_text = text_state + "\n".join(fortify_choices) + "\nDo we want to skip or fortify?"
-            skip_or_fortify_choice = self._get_choice_probabilities(skip_or_fortify_text, ["Skip","Fortify"], NUM_SEEDS=1)[0][0]
+            skip_or_fortify_choice = self._get_choice_probabilities(skip_or_fortify_text, ["Skip","Fortify"])
             if skip_or_fortify_choice == "Skip":
                 break
-            fortify_choice = self._get_choice_probabilities(text_state, fortify_choices, NUM_SEEDS=1)[0][0]
+            fortify_choice = self._get_choice_probabilities(text_state, fortify_choices)
             origin_country, dest_country = fortify_from_to[fortify_choices.index(fortify_choice)]
             number_of_soldiers_to_move = self._get_textual_overview() + f"\n{self.name} (you) are moving soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldiers"
             if origin_country.army.n_soldiers > 1:
-                number_of_soldiers_to_move = int(self._get_choice_probabilities(number_of_soldiers_to_move, [f"Move {x} soldiers" for x in range(1, origin_country.army.n_soldiers)], NUM_SEEDS=1)[0][0].split()[1])
+                number_of_soldiers_to_move = int(self._get_choice_probabilities(number_of_soldiers_to_move, [f"Move {x} soldiers" for x in range(1, origin_country.army.n_soldiers)]).split()[1])
             else:
                 number_of_soldiers_to_move = 1
             self.game.fortify(self, origin_country, dest_country, number_of_soldiers_to_move)
