@@ -89,8 +89,10 @@ class PlayerLLM(Player):
         game_state += f"\nCurrent turn: {self.name}\n"
         return game_state
 
-
     def process_cards_phase(self):
+        from IPython.terminal.embed import embed
+        embed(header="")
+        input("Exit")
         print(f"It is {self.name}'s turn\n")
         logging.info(f"\x1b[1m\nCards Phase - {self}\x1b[0m")
         print(f"Cards on hand: {self.get_cards()}")
@@ -100,32 +102,37 @@ class PlayerLLM(Player):
             print("Player has the following trade in options:")
             for i, x in enumerate(options):
                 print(f"{i}: {x}")
-            
+
             selected_option = int(input("Select option(or -1 to skip): "))
             if selected_option != -1:
                 self.game.trade_in_cards(self, options[selected_option])
         else:
             print("Player cannot trade in any cards")
-    
+
     def process_draft_phase(self):
         logging.info(f"\x1b[1m\nDraft Phase - {self}\x1b[0m")
         logging.info(f"\x1b[33mUnassigned soldiers: {self.unassigned_soldiers}\x1b[0m")
-        
+
         while self.unassigned_soldiers > 0:
-            print(f"\nPlayer has {self.unassigned_soldiers} unassigned soldiers")
+            text_state = self._get_textual_overview()
+            text_state += f"\n{self.name} has {self.unassigned_soldiers} unassigned soldiers. Which of these territories would you like to assign the next soldier to?\n"
             position = self.game.get_player_army_summary(self)
-            print("Current player position:")
-            for i, x in enumerate(position):
-                print(f"{i}: Territory: ({(x[0], x[1])}), Bordering Territories: {x[2]}")
-
-            selected_country_idx = int(input("Select country(index) to assign troops: "))
-            country = position[selected_country_idx][0]
-
-            n_soldiers = int(input(f"Select number of soldiers to assign to the selected country: "))
-            self.game.assign_soldiers(self, country, n_soldiers)
+            choices = []
+            country_choices = []
+            for x in position:
+                choices += [f"Assign {x[1]} soldiers to {x[0].name}. Bordering Territories: {', '.join(f'{country.name}' for country,_ in x[2])}"]
+                country_choices += [x[0]]
+            choice = self._get_choice_probabilities(text_state, choices)
+            selected_country = country_choices[choices.index(choice)]
+            self.game.assign_soldiers(self, selected_country, 1)
 
     def process_attack_phase(self):
-        print(self._get_textual_overview())
+        logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
+
+        total_solders_per_owner = defaultdict(int)
+        for country in self.game.countries:
+            total_solders_per_owner[country.owner.name] += country.army.n_soldiers
+        print(sorted(total_solders_per_owner.items()))
         while True:
             text_state = self._get_textual_overview()
             text_state += "Attack options:\n"
@@ -155,15 +162,15 @@ class PlayerLLM(Player):
             n_soldiers = attacker_country.army.n_soldiers
 
             if n_soldiers-1 > 1:
-                print(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))]))
-                attacking_soldiers = int(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x} soldiers" for x in range(min(3, n_soldiers-1))]).split()[1])
+                attacking_soldiers = int(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))]).split()[1])
             else:
                 attacking_soldiers = 1
 
+            logging.info(f"\x1b[33mLLM Attacking with {attacking_soldiers} soldiers from {attacker_country} to {defender_country}\x1b[0m")
             self.game.attack(self, attacker_country, defender_country, attacking_soldiers)
 
     def process_fortify_phase(self):
-        print(self._get_textual_overview())
+        logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
         max_fortify_rounds = len(self.game.get_fortify_options(self))*2
         for _ in range(max_fortify_rounds):
             self.game.get_fortify_options(self)
@@ -185,5 +192,7 @@ class PlayerLLM(Player):
                 number_of_soldiers_to_move = int(self._get_choice_probabilities(number_of_soldiers_to_move, [f"Move {x} soldiers" for x in range(1, origin_country.army.n_soldiers)]).split()[1])
             else:
                 number_of_soldiers_to_move = 1
+            logging.info(f"\x1b[33mLLM Fortifying {number_of_soldiers_to_move} soldiers from {origin_country} to {dest_country}\x1b[0m")
             self.game.fortify(self, origin_country, dest_country, number_of_soldiers_to_move)
+        logging.info(f"\x1b[33mLLM Fortify phase ended\x1b[0m")
         self.game.reinforce(self)
