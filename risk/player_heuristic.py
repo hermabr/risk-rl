@@ -26,6 +26,15 @@ class PlayerHeuristic(Player):
 
     def process_attack_phase(self):
         logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
+
+        # for debug
+        print('----------- Nodes, edges --------------------')
+        nodes, edges = self.game.get_game_state_encoded(self)
+        print(nodes, edges)
+        print('-------------attack options -----------------')
+        print(self.game.get_attack_options_encoded(self))
+        print('---------------- edge array ---------------')
+        print(self.game.edge_list_array)
         
         max_attacks_per_round = 6 # maybe change this as game progresses?
         for attack_iter in range(max_attacks_per_round):

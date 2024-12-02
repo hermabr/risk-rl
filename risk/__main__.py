@@ -11,7 +11,7 @@ players = [PlayerHeuristic("Player 1"), PlayerHeuristic("Player 2"),
             PlayerHeuristic("Player 3"), PlayerHeuristic("Player 4"),
             PlayerHeuristic("Player 5")]
 
-game = Game(players, display_map=True, delay=False) 
+game = Game(players, display_map=True, delay=True) 
 
 
 def test_decode_attack_options(game: Game):
