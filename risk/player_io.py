@@ -5,7 +5,8 @@ import logging
 class PlayerIO(Player):
     def process_cards_phase(self):
         print(f"It is {self.name}'s turn\n")
-        logging.info(f"\x1b[1m\nCards Phase - {self}\x1b[0m")
+        if self.game.log_all:
+            logging.info(f"\x1b[1m\nCards Phase - {self}\x1b[0m")
         print(f"Cards on hand: {self.get_cards()}")
 
         options = self.get_trade_in_options()
@@ -21,8 +22,9 @@ class PlayerIO(Player):
             print("Player cannot trade in any cards")
     
     def process_draft_phase(self):
-        logging.info(f"\x1b[1m\nDraft Phase - {self}\x1b[0m")
-        logging.info(f"\x1b[33mUnassigned soldiers: {self.unassigned_soldiers}\x1b[0m")
+        if self.game.log_all:
+            logging.info(f"\x1b[1m\nDraft Phase - {self}\x1b[0m")
+            logging.info(f"\x1b[33mUnassigned soldiers: {self.unassigned_soldiers}\x1b[0m")
         
         while self.unassigned_soldiers > 0:
             print(f"\nPlayer has {self.unassigned_soldiers} unassigned soldiers")
@@ -38,7 +40,8 @@ class PlayerIO(Player):
             self.game.assign_soldiers(self, country, n_soldiers)
 
     def process_attack_phase(self):
-        logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
+        if self.game.log_all:
+            logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
         while True:
             attack_options = self.game.get_attack_options(self)
 
@@ -59,7 +62,8 @@ class PlayerIO(Player):
 
 
     def process_fortify_phase(self):
-        logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
+        if self.game.log_all:
+            logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
 
         while True:
             fortify_options_ranked = self.game.get_fortify_options(self)

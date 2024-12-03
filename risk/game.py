@@ -3,6 +3,7 @@ import networkx as nx
 from risk.country import *
 from risk.army import Army
 from risk.player import Player
+from risk.player_rl import PlayerRL
 from risk.game_map import GameMap
 from risk.card import *
 import logging
@@ -27,18 +28,22 @@ def assign_unique_colors(players: List[Player]) -> dict:
     return color_mapping
 
 class Game:
-    def __init__(self, players, display_map=True, delay=True):
+    def __init__(self, players, display_map=True, log_all=True):
+        self.num_rounds_played = 0
         self.display_map = display_map
-        self.delay = delay
+        self.log_all = log_all
         self.players = players
         for player in players:
             player.game = self
+        
+        self.players_eliminated = []
             
         player_colors = assign_unique_colors(self.players)
         self.game_map = GameMap(display_map=display_map, player_colors=player_colors)
         
         self.num_players = len(self.players)
         self.num_players_start = self.num_players
+        logging.info(f"Started new game with {self.num_players_start} players")
         
         self.used_cards = []
         self.country_conquered_in_round = False
@@ -74,6 +79,7 @@ class Game:
          
         self.total_attack_options_cnt = offset + 1 # add skip action
         self.attack_options_offset_map_rev = {v: k for k, v in self.attack_options_offset_map.items()}
+        self.action_lookup_table = self.get_attack_action_lookup()
     
     def get_army_sizes(self):
         army_size_arr = np.zeros(self.num_countries)
@@ -110,33 +116,40 @@ class Game:
                     soldier_diff = n_soldiers_attack - n_soldiers_defend
                     edge_features[edge_idx, :] = [1, soldier_diff, int(n_soldiers_attack > 1), int(n_soldiers_attack > 2), int(n_soldiers_attack > 3)]
 
-        edge_features[:, 1] /= np.max(edge_features[:, 1])
+        # normalize soldier diff edge feature
+        max_diff = np.max(edge_features[:, 1])
+        if max_diff > 0:
+            edge_features[:, 1] /= max_diff
+        else:
+            edge_features[:, 1] = 0
+
         return node_features, edge_features
 
     def get_attack_options_encoded(self, player: Player):
         attack_options_array = np.zeros(self.total_attack_options_cnt)
         for country in player.countries:
             n_soldiers = country.army.n_soldiers
-            if n_soldiers == 1:
+            if n_soldiers <= 1:
                 continue
-
+            
             country_offset = self.attack_options_offset_map[country]
-            for border_country in self.game_map.neighbors(country):
+            border_countries = self.border_map[country]
+            for border_idx, border_country in enumerate(border_countries):
                 if border_country not in player.countries:
-                    border_country_offset = self.border_map[country].index(border_country)
-                    attack_options_array[country_offset + border_country_offset] = 1
-                    if n_soldiers > 2:
-                        attack_options_array[country_offset + border_country_offset + 1] = 1
-                    if n_soldiers > 3:
-                        attack_options_array[country_offset + border_country_offset + 2] = 1
-        
-        attack_options_array[-1] = 1 # skip option
-
+                    max_attack_soldiers = min(3, n_soldiers - 1)
+                    for num_attack_soldiers in range(1, max_attack_soldiers + 1):
+                        # Calculate the correct index
+                        idx = country_offset + 3 * border_idx + (num_attack_soldiers - 1)
+                        attack_options_array[idx] = 1
+    
+        attack_options_array[-1] = 1  # skip option
+    
         return attack_options_array
+
 
     def decode_attack_option(self, attack_option_idx):
         if attack_option_idx == self.total_attack_options_cnt - 1:
-            return None, None, -1
+            return (-1, -1, 0)
 
         pos = bisect.bisect_right(self.attack_options_offset_vals, attack_option_idx)
         country_offset = self.attack_options_offset_vals[pos - 1]
@@ -149,15 +162,33 @@ class Game:
 
         return attack_country, defend_country, n_soldiers
 
+    def get_attack_action_lookup(self):
+        lookup_table = []
+        for i in range(self.total_attack_options_cnt):
+            attack_country, defend_country, n_soldiers = self.decode_attack_option(i)
+            lookup_table.append((
+                -1 if attack_country == -1 else self.countries.index(attack_country), 
+                -1 if defend_country == -1 else self.countries.index(defend_country),
+                n_soldiers
+            ))
+        
+        return lookup_table
+    
     def gameplay_loop(self):
-        logging.info('\x1b[1m\x1b[32mGame Started!\x1b[0m')
         while True:
+            if self.num_rounds_played > 1000:
+                logging.info("Hit upper limit of number of rounds")
+                self.players_eliminated.extend(self.players)
+                return -1, 0
+
             if self.num_players == 1:
-                logging.info(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player}\x1b[0m")
-                return
+                rl_won = int(isinstance(self.players[0], PlayerRL))
+                logging.info(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player} after {self.num_rounds_played} rounds\x1b[0m")
+                return self.num_rounds_played, rl_won
 
             match self.current_phase:
                 case GamePlayState.CARDS:
+                    self.num_rounds_played += 1
                     self.current_player.process_cards_phase()
                 case GamePlayState.DRAFT:
                     self.current_player.process_draft_phase()
@@ -165,8 +196,6 @@ class Game:
                     self.current_player.process_attack_phase()
                 case GamePlayState.FORTIFY:
                     self.current_player.process_fortify_phase()
-                case _:
-                    raise ValueError(f"Invalid phase {self.curr_phase}")
             self.next_phase()
     
     def visualize(self):
@@ -215,7 +244,8 @@ class Game:
                 reinforcements += continent.extra_points
 
         player.unassigned_soldiers += reinforcements
-        logging.info(f"\x1b[36m{player}\x1b[0m receives \x1b[33m{reinforcements}\x1b[0m reinforcements\n")
+        if self.log_all:
+            logging.info(f"\x1b[36m{player}\x1b[0m receives \x1b[33m{reinforcements}\x1b[0m reinforcements\n")
 
     def get_player_army_summary(self, player):
         summary = [
@@ -236,7 +266,9 @@ class Game:
         assert n_soldiers <= player.unassigned_soldiers
         assert country in player.countries
 
-        logging.info(f"\x1b[36m{player}\x1b[0m assigns \x1b[33m{n_soldiers}\x1b[0m soldiers to \x1b[35m{country}\x1b[0m")
+        if self.log_all:
+            logging.info(f"\x1b[36m{player}\x1b[0m assigns \x1b[33m{n_soldiers}\x1b[0m soldiers to \x1b[35m{country}\x1b[0m")
+        
         country_idx = player.countries.index(country)
         player.countries[country_idx].army.n_soldiers += n_soldiers
         player.unassigned_soldiers -= n_soldiers
@@ -275,7 +307,7 @@ class Game:
         assert 1 <= attacking_soldiers <= min(3, attacker_country.army.n_soldiers - 1)
 
         assert self.game_map.has_edge(attacker_country, defender_country)
-        attack_successful = self.battle(attacker_country, defender_country, attacking_soldiers)
+        attack_successful, reward = self.battle(attacker_country, defender_country, attacking_soldiers)
 
         if attack_successful and not self.country_conquered_in_round:
             self.draw_card(attacker)
@@ -284,22 +316,30 @@ class Game:
         if self.display_map:
             self.visualize()
 
+        if isinstance(attacker, PlayerRL):
+            logging.info(f"Reward for this attack: {reward}")
+        return reward
+
     @staticmethod
     def roll_dice(n):
         return sorted([random.randint(1, 6) for _ in range(n)], reverse=True)
 
     # return True/False battle won
     def battle(self, attacker_country: Country, defender_country: Country, attacking_soldiers: int):
-        logging.info(f"\n\x1b[34mBattle: \x1b[31m{attacker_country}\x1b[34m -> \x1b[32m{defender_country}\x1b[34m, attacking soldiers\x1b[0m: {attacking_soldiers}")
+        if self.log_all:
+            logging.info(f"\n\x1b[34mBattle: \x1b[31m{attacker_country}\x1b[34m -> \x1b[32m{defender_country}\x1b[34m, attacking soldiers\x1b[0m: {attacking_soldiers}")
 
+        prev_player_continents = self.get_player_continents(attacker_country.owner)
+        
         attacker = attacker_country.army
         defender = defender_country.army
 
         attack_rolls = self.roll_dice(attacking_soldiers)
         defend_rolls = self.roll_dice(min(2, defender.n_soldiers))
 
-        logging.info(f"\x1b[31mAttacker rolls\x1b[0m: {attack_rolls}")
-        logging.info(f"\x1b[32mDefender rolls\x1b[0m: {defend_rolls}")
+        if self.log_all:
+            logging.info(f"\x1b[31mAttacker rolls\x1b[0m: {attack_rolls}")
+            logging.info(f"\x1b[32mDefender rolls\x1b[0m: {defend_rolls}")
 
         attacker_loss = 0
         defender_loss = 0
@@ -312,20 +352,30 @@ class Game:
         attacker.n_soldiers -= attacker_loss
         defender.n_soldiers -= defender_loss
 
-        logging.info(f"\x1b[32mDefender loses \x1b[33m{defender_loss}\x1b[0m\x1b[32m soldiers\x1b[0m")
-        logging.info(f"\x1b[31mAttacker loses \x1b[33m{attacker_loss}\x1b[0m\x1b[31m soldiers\x1b[0m")
+        reward = -0.5 * attacker_loss
+
+        if self.log_all:
+            logging.info(f"\x1b[32mDefender loses \x1b[33m{defender_loss}\x1b[0m\x1b[32m soldiers\x1b[0m")
+            logging.info(f"\x1b[31mAttacker loses \x1b[33m{attacker_loss}\x1b[0m\x1b[31m soldiers\x1b[0m")
 
         if defender.n_soldiers <= 0:
-            logging.info(f"\x1b[1m\x1b[31m{defender_country} has been conquered!\x1b[0m")
+            reward += 10
+            if self.log_all:
+                logging.info(f"\x1b[1m\x1b[31m{defender_country} has been conquered!\x1b[0m")
             defender_country.owner.remove_country(defender_country)
 
             if len(defender_country.owner.countries) == 0:
+                reward += 100
                 eliminated_player = defender_country.owner
-                logging.info(f"\n{'!'*40}\n{eliminated_player} has been eliminated\n{'!' *40}\n")
+                logging.info(f"\n{'!'*40}\n{eliminated_player} has been eliminated after {self.num_rounds_played} rounds\n{'!' *40}\n")
 
+                self.players_eliminated.append(eliminated_player)
                 eliminated_player_idx = self.players.index(eliminated_player)
                 self.players.pop(eliminated_player_idx)
                 self.num_players -= 1
+                if self.num_players == 1:
+                    reward += 500 # game won
+                    self.players_eliminated.append(self.players[0])
 
             defender_country.owner = attacker_country.owner
             attacker_country.owner.add_country(defender_country)
@@ -336,10 +386,23 @@ class Game:
                 soldiers_to_move = attacker.n_soldiers - 1
             attacker.n_soldiers -= soldiers_to_move
             defender_country.army = Army(attacker.owner, soldiers_to_move)
-            return True
 
-        return False
+            if self.get_player_continents(attacker_country.owner) != prev_player_continents:
+                reward += 50
+            
+            return True, reward
 
+        reward -= 2 # unsuccessful attack
+        return False, reward
+
+    def get_player_continents(self, player):
+        continents = []
+        for continent in CONTINENTS:
+            if all([country.army.owner == player for country in continent.countries]):
+                continents.append(continent)
+
+        return continents
+                
 
     # for each country that a player owns(player.countries)
     # get all other connected countries that the player owns
@@ -400,7 +463,9 @@ class Game:
         assert origin_country in origin_options
         assert dest_country in dest_options
         
-        logging.info(f"\x1b[36m{player}\x1b[0m fortifies \x1b[33m{n_soldiers_move}\x1b[0m from \x1b[35m{origin_country}\x1b[0m to \x1b[35m{dest_country}\x1b[0m")
+        if self.log_all:
+            logging.info(f"\x1b[36m{player}\x1b[0m fortifies \x1b[33m{n_soldiers_move}\x1b[0m from \x1b[35m{origin_country}\x1b[0m to \x1b[35m{dest_country}\x1b[0m")
+        
         dest_country.army.n_soldiers += n_soldiers_move
         origin_country.army.n_soldiers -= n_soldiers_move
         
@@ -431,7 +496,8 @@ class Game:
         for card in card_combination:
             cards_played.append(player.cards[card.card_type].pop())
         
+        if self.log_all:
+            cards_str = ', '.join([str(x) for x in card_combination])
+            logging.info(f"\x1b[36m{player}\x1b[0m plays cards: \x1b[33m ({cards_str})\x1b[0m")
         
-        cards_str = ', '.join([str(x) for x in card_combination])
-        logging.info(f"\x1b[36m{player}\x1b[0m plays cards: \x1b[33m ({cards_str})\x1b[0m")
         self.used_cards += cards_played

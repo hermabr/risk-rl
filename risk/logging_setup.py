@@ -15,14 +15,14 @@ class NoColorFormatter(logging.Formatter):
         return clean_msg
 
 
-def init_logging():
+def init_logging(name='gamelog'):
     logdir = "risk/logs"
 
     if not os.path.exists(logdir):
         os.makedirs(logdir)
 
     timestamp = datetime.now().strftime("%Y_%d_%m_%H_%M_%S")
-    log_filename = f"gamelog_{timestamp}.log"
+    log_filename = f"{name}_{timestamp}.log"
     log_filepath = os.path.join(logdir, log_filename)
     
     logger = logging.getLogger()

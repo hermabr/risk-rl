@@ -2,7 +2,7 @@ import networkx as nx
 from typing import List
 
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg') # use TkAgg when running locally
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import matplotlib.colors as mcolors
