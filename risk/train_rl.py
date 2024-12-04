@@ -10,10 +10,6 @@ from tqdm import tqdm
 import torch.nn.utils
 import torch.optim.lr_scheduler 
 
-def test_decode_attack_options(game: Game):
-    for attack_options in range(game.total_attack_options_cnt):
-        attack_country, defend_country, n_soldiers = game.decode_attack_option(attack_options)
-        logging.info(f"{attack_country}, {defend_country}, {n_soldiers}")
 
 def save_model_checkpoint(model, episode):
     torch.save(model.state_dict(), f'risk/model_checkpoints/rl_model_checkpoint_episode_{episode}.pt')
@@ -24,13 +20,12 @@ def train(num_episodes=10_000):
     logging.info(f"Running torch on device: {device}")
     
     model = RiskGNN(
-        in_channels_node=3, 
-        in_channels_edge=5, 
+        in_channels_node=12, 
         hidden_dim=64, 
         num_actions=493 # number of possible attacks
     ).to(device) 
     
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4) # TODO Tune lr
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10000, gamma=0.1)
     
     num_rounds_ls = [] # to get distribution of game duration
@@ -60,14 +55,11 @@ def train(num_episodes=10_000):
         
         train_model(model, optimizer, all_experiences, game.action_lookup_table, device)
     
-
-    
     save_model_checkpoint(model, num_episodes) # TODO maybe save at intervals?
 
 def train_model(model, optimizer, experiences, action_lookup_table, device):
     states = []
     edge_indices = []
-    edge_attrs = []
     valid_action_masks = []
     action_indices = []
     rewards = []
@@ -75,13 +67,12 @@ def train_model(model, optimizer, experiences, action_lookup_table, device):
     for exp in experiences:
         states.append(exp['node_features'].to(device))
         edge_indices.append(exp['edge_index'].to(device))
-        edge_attrs.append(exp['edge_attr'].to(device))
         valid_action_masks.append(exp['valid_action_mask'].to(device))
         action_indices.append(exp['action_idx'])
         rewards.append(exp['reward'])
     
     rewards = compute_discounted_rewards(rewards, gamma=0.99)
-    loss = compute_policy_loss(model, states, edge_indices, edge_attrs, valid_action_masks, action_indices, rewards, action_lookup_table)
+    loss = compute_policy_loss(model, states, edge_indices, valid_action_masks, action_indices, rewards, action_lookup_table)
     
     optimizer.zero_grad()
     loss.backward()
@@ -96,7 +87,7 @@ def compute_discounted_rewards(rewards, gamma):
         discounted_rewards.insert(0, R)
     return discounted_rewards
 
-def compute_policy_loss(model, states, edge_indices, edge_attrs, valid_action_masks, action_indices, rewards, action_lookup_table):
+def compute_policy_loss(model, states, edge_indices, valid_action_masks, action_indices, rewards, action_lookup_table):
     total_loss = 0.0
     device = states[0].device
     edge_index = edge_indices[0] 
@@ -104,8 +95,8 @@ def compute_policy_loss(model, states, edge_indices, edge_attrs, valid_action_ma
     rewards_tensor = torch.tensor(rewards, dtype=torch.float, device=device)
     normalized_rewards = (rewards_tensor - rewards_tensor.mean()) / (rewards_tensor.std() + 1e-8)
     
-    for state, edge_attr, valid_mask, action_idx, reward in zip(states, edge_attrs, valid_action_masks, action_indices, normalized_rewards):
-        logits = model(state, edge_index, edge_attr, action_lookup_table)
+    for state, valid_mask, action_idx, reward in zip(states, valid_action_masks, action_indices, normalized_rewards):
+        logits = model(state, edge_index, action_lookup_table)
         
         masked_logits = logits.clone()
         masked_logits[~valid_mask] = float('-inf')

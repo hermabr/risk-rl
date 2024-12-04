@@ -9,7 +9,7 @@ import risk.play_game as play
 
 logging_setup.init_logging("rl_training_log")
 try:
-    training.train(num_episodes=500) # play more games
+    training.train(num_episodes=10_000) # play more games
 except Exception as e:
     logging.error("An error occurred: %s", str(e))
     logging.error("Stack trace: %s", traceback.format_exc())

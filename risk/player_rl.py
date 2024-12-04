@@ -5,39 +5,22 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import NNConv
+from torch_geometric.nn import GCNConv
 
 class RiskGNN(nn.Module):
-    def __init__(self, in_channels_node, in_channels_edge, hidden_dim, num_actions):
+    def __init__(self, in_channels_node, hidden_dim, num_actions):
         super(RiskGNN, self).__init__()
-        self.node_embed_dim = hidden_dim
-
-        self.edge_network1 = nn.Sequential(
-            nn.Linear(in_channels_edge, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, in_channels_node * hidden_dim)  # Output size: [num_edges, 3 * 64]
-        )
-
-        self.edge_network2 = nn.Sequential(
-            nn.Linear(in_channels_edge, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim * hidden_dim)  # Output size: [num_edges, 64 * 64]
-        )
-
-        self.conv1 = NNConv(in_channels_node, hidden_dim, self.edge_network1, aggr='mean')
-        self.conv2 = NNConv(hidden_dim, hidden_dim, self.edge_network2, aggr='mean')
+        self.conv1 = GCNConv(in_channels_node, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
         self.action_head = ActionHead(hidden_dim, num_actions)
 
-    def forward(self, x, edge_index, edge_attr, action_lookup_table):
-        # x: Node features [num_nodes, in_channels_node]
-        # edge_index: Edge indices [2, num_edges]
-        # edge_attr: Edge features [num_edges, in_channels_edge]
+    def forward(self, x, edge_index, action_lookup_table):
+        # x: node features
+        # edge_index: edge list array
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.relu(self.conv2(x, edge_index)) # (num_nodes, hidden_dim)
 
-        # apply graph conv layers
-        x = F.relu(self.conv1(x, edge_index, edge_attr))
-        x = F.relu(self.conv2(x, edge_index, edge_attr))
-
-        logits = self.action_head(x, action_lookup_table)
+        logits = self.action_head(x, action_lookup_table)  # [num_actions]
         return logits
     
 class ActionHead(nn.Module):
@@ -49,10 +32,6 @@ class ActionHead(nn.Module):
         self.skip_attack_embed = nn.Parameter(torch.zeros(node_embed_dim))
         self.skip_defend_embed = nn.Parameter(torch.zeros(node_embed_dim))
 
-        # Learnable embeddings for skip action
-        self.skip_attack_embed = nn.Parameter(torch.zeros(node_embed_dim))
-        self.skip_defend_embed = nn.Parameter(torch.zeros(node_embed_dim))
-
         self.mlp = nn.Sequential(
             nn.Linear(2 * node_embed_dim + 1, 128),
             nn.ReLU(),
@@ -60,33 +39,36 @@ class ActionHead(nn.Module):
         )
 
     def forward(self, node_embeddings, action_lookup_table):
-        attack_embeds = []
-        defend_embeds = []
-        n_soldiers_list = []
-
-        for attack_idx, defend_idx, n_soldiers in action_lookup_table:
-            if attack_idx != -1:
-
-                attack_embeds.append(node_embeddings[attack_idx])
-                defend_embeds.append(node_embeddings[defend_idx])
-            else:
-                attack_embeds.append(self.skip_attack_embed)
-                defend_embeds.append(self.skip_defend_embed)
-            
-            n_soldiers_list.append(n_soldiers)
-
-        attack_embeds = torch.stack(attack_embeds)  # [num_actions, node_embed_dim]
-        defend_embeds = torch.stack(defend_embeds)  # [num_actions, node_embed_dim]
-        device = attack_embeds.device
+        attack_indices = torch.tensor(
+            [action[0] for action in action_lookup_table],
+            dtype=torch.long,
+            device=node_embeddings.device
+        )  # [num_actions]
         
-        n_soldiers_tensor = torch.tensor(n_soldiers_list, dtype=torch.float32).unsqueeze(1).to(device)  # [num_actions, 1]
-
-        # Concatenate embeddings and n_soldiers
-        action_inputs = torch.cat([attack_embeds, defend_embeds, n_soldiers_tensor], dim=1)  # [num_actions, 2 * node_embed_dim + 1]
-
+        defend_indices = torch.tensor(
+            [action[1] for action in action_lookup_table],
+            dtype=torch.long,
+            device=node_embeddings.device
+        )  # [num_actions]
+        
+        n_soldiers = torch.tensor(
+            [action[2] for action in action_lookup_table],
+            dtype=torch.float32,
+            device=node_embeddings.device
+        ).unsqueeze(1)  # [num_actions, 1]
+        
+        skip_mask = (attack_indices == -1)  # [num_actions]
+        attack_embeds = self.skip_attack_embed.unsqueeze(0).repeat(attack_indices.size(0), 1)  # [num_actions, node_embed_dim]
+        defend_embeds = self.skip_defend_embed.unsqueeze(0).repeat(defend_indices.size(0), 1)  # [num_actions, node_embed_dim]
+        
+        non_skip_mask = ~skip_mask  # [num_actions]
+        attack_embeds[non_skip_mask] = node_embeddings[attack_indices[non_skip_mask]]
+        defend_embeds[non_skip_mask] = node_embeddings[defend_indices[non_skip_mask]]
+        
+        action_inputs = torch.cat([attack_embeds, defend_embeds, n_soldiers], dim=1)  # [num_actions, 2 * node_embed_dim + 1]
         logits = self.mlp(action_inputs).squeeze()  # [num_actions]
+        
         return logits
-
 
 class PlayerRL(Player):
     def __init__(self, name, model, device):
@@ -115,22 +97,23 @@ class PlayerRL(Player):
     def process_attack_phase(self):
         if self.game.log_all:
             logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
+        
         max_attacks_per_round = 15
         game_won = False
         no_attack = True
+        
         for _ in range(max_attacks_per_round):
             if self.game.num_players == 1:
                 break
             
-            node_features, edge_features = self.game.get_game_state_encoded(self)
-            attack_options_array = self.game.get_attack_options_encoded(self)
+            node_features= self.game.get_game_state_encoded(self)
+            attack_options_array = self.game.get_attack_options_encoded(self) # for valid action mask
             
             valid_action_mask = torch.tensor(attack_options_array, dtype=torch.bool).to(self.device)
             node_features_tensor = torch.tensor(node_features, dtype=torch.float32).to(self.device)
             edge_index_tensor = torch.tensor(self.game.edge_list_array, dtype=torch.long).to(self.device)
-            edge_attr_tensor = torch.tensor(edge_features, dtype=torch.float32).to(self.device)
 
-            logits = self.model(node_features_tensor, edge_index_tensor, edge_attr_tensor, self.game.action_lookup_table)
+            logits = self.model(node_features_tensor, edge_index_tensor, self.game.action_lookup_table)
             
             # mask away invalid actions
             masked_logits = logits.clone()
@@ -141,7 +124,7 @@ class PlayerRL(Player):
 
             attack_idx, defend_idx, n_soldiers = self.game.action_lookup_table[action_idx]
             
-            # Handle skip action
+            # handle skip action
             if attack_idx != -1:
                 attack_country = self.game.countries[attack_idx]
                 no_attack = False
@@ -152,7 +135,6 @@ class PlayerRL(Player):
                 self.experiences.append({
                     'node_features': node_features_tensor.cpu(),
                     'edge_index': edge_index_tensor.cpu(),
-                    'edge_attr': edge_attr_tensor.cpu(),
                     'valid_action_mask': valid_action_mask.cpu(),
                     'action_idx': action_idx,
                     'reward': reward,
@@ -163,10 +145,9 @@ class PlayerRL(Player):
             self.experiences.append({
                     'node_features': node_features_tensor.cpu(),
                     'edge_index': edge_index_tensor.cpu(),
-                    'edge_attr': edge_attr_tensor.cpu(),
                     'valid_action_mask': valid_action_mask.cpu(),
                     'action_idx': action_idx,
-                    'reward': -5, # negative reward for newer attacking during phase
+                    'reward': -5, # negative reward for never attacking during phase
                     'action_probs': action_probs.detach().cpu()
                 })
 
