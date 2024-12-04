@@ -57,7 +57,6 @@ class Game:
         # setup for game state encoding
         self.countries = sorted(COUNTRIES.copy())
         self.num_countries = len(self.countries)
-        self.player_idx_map = {p:i for i,p in enumerate(self.players)}
         self.country_idx_map = {c:i for i,c in enumerate(self.countries)}
         self.edge_list = [(self.country_idx_map[u], self.country_idx_map[v]) for u, v in self.game_map.edges()]
         self.edge_list.sort(key = lambda x: (x[0], x[1]))
@@ -81,51 +80,65 @@ class Game:
         self.attack_options_offset_map_rev = {v: k for k, v in self.attack_options_offset_map.items()}
         self.action_lookup_table = self.get_attack_action_lookup()
     
-    def get_army_sizes(self):
-        army_size_arr = np.zeros(self.num_countries)
-        for p in self.players:
-            for c in p.countries:
-                army_size_arr[self.country_idx_map[c]] = c.army.n_soldiers
-        
-        return army_size_arr
-
-    # node/edge features for GNN
+    # node features for GNN
     def get_game_state_encoded(self, player: Player):
-        # TODO look into adding more features for both nodes and edges
-        # add more node featurs, average army diff, max army diff(for both owner and oppenents, seperate indices)
-        node_features = np.zeros((self.num_countries, 3)) # ownership, army_size player, army_size opponent
-        edge_features = np.zeros((self.n_edges, 5)) # from current players' perspective, (is_border, army_diff, can_attack 1, 2, 3)?
+        # node features (per territory):
+        # 0: player holds territory
+        # 1: army size if player hold territory, default 0
+        # 2: army size if player does not hold territory: default 0
+        # 3: number of bordering territories if player holds territory, default 0
+        # 4: average soldier diff if player holds territory, default 0
+        # 5: min solider diff if player holds territory
+        # 6: max soldier diff if player holds territory
+        # 7: number of bordering territories if player not holds territory, default 0
+        # 8: average soldier diff if player not holds territory, default 0
+        # 9: min solider diff if player not holds territory
+        # 10: max soldier diff if player not holds territory
+        # 11: can attack territory
 
-        army_sizes = self.get_army_sizes()
-        node_features[:, 2] = army_sizes / np.max(army_sizes)
+        node_features = np.zeros((self.num_countries, 12))
+        for country_idx, country in enumerate(self.countries):
+            country_n_soldiers = country.army.n_soldiers
+            country_owner = country.army.owner
+            own_country = country.owner == player
+            if own_country:
+                node_features[country_idx, 0] = 1
+                node_features[country_idx, 1] = country_n_soldiers
+            else:
+                node_features[country_idx, 2] = country_n_soldiers
+            
+            neighbors = set()
+            for c in player.countries:
+                neighbors.update(self.game_map.neighbors(c))
+            can_attack = int(not own_country and country in neighbors)
+            node_features[country_idx, 11] = can_attack
+            
+            soldier_diffs = [country_n_soldiers - c.army.n_soldiers 
+                for c in self.game_map.neighbors(country)
+                    if c not in country_owner.countries
+                    ]
+            
+            if soldier_diffs:
+                n_borders = len(soldier_diffs)
+                avg_diff = np.mean(soldier_diffs)
+                min_diff = min(soldier_diffs)
+                max_diff = max(soldier_diffs)
+                if own_country:
+                    node_features[country_idx, 3:7] = [n_borders, avg_diff, min_diff, max_diff]
+                else:
+                    node_features[country_idx, 7:11] = [n_borders, avg_diff, min_diff, max_diff]
+        
+        # standardize features
+        for idx in [1, 2, 4, 5, 6, 8, 9, 10]:
+            max_val = node_features[:, idx].max()
+            if max_val != 0:
+                node_features[:, idx] = node_features[:, idx] / max_val
+            else:
+                node_features[:, idx] = 0
 
-        for country in player.countries:
-            country_idx = self.country_idx_map[country]
-            node_features[country_idx, 0] = 1
-            node_features[country_idx, 1] = node_features[country_idx, 2]
-            node_features[country_idx, 2] = 0
-            n_soldiers_attack = country.army.n_soldiers
-            for border_country in self.game_map.neighbors(country):
-                if border_country not in player.countries:
-                    n_soldiers_defend = border_country.army.n_soldiers
-                    border_country_idx = self.country_idx_map[border_country]
-                    if (country_idx, border_country_idx) in self.edge_list_idx_map.keys():
-                        edge_idx = self.edge_list_idx_map[(country_idx, border_country_idx)]
-                    else:
-                        edge_idx = self.edge_list_idx_map[(border_country_idx, country_idx)]
+        return node_features
                     
-                    soldier_diff = n_soldiers_attack - n_soldiers_defend
-                    edge_features[edge_idx, :] = [1, soldier_diff, int(n_soldiers_attack > 1), int(n_soldiers_attack > 2), int(n_soldiers_attack > 3)]
-
-        # normalize soldier diff edge feature
-        max_diff = np.max(edge_features[:, 1])
-        if max_diff > 0:
-            edge_features[:, 1] /= max_diff
-        else:
-            edge_features[:, 1] = 0
-
-        return node_features, edge_features
-
+                                   
     def get_attack_options_encoded(self, player: Player):
         attack_options_array = np.zeros(self.total_attack_options_cnt)
         for country in player.countries:
@@ -176,7 +189,7 @@ class Game:
     
     def gameplay_loop(self):
         while True:
-            if self.num_rounds_played > 1000:
+            if self.num_rounds_played > 250:
                 logging.info("Hit upper limit of number of rounds")
                 self.players_eliminated.extend(self.players)
                 return -1, 0
