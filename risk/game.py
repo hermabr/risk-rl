@@ -28,10 +28,11 @@ def assign_unique_colors(players: List[Player]) -> dict:
     return color_mapping
 
 class Game:
-    def __init__(self, players, display_map=True, log_all=True, max_rounds=60):
+    def __init__(self, players, display_map=True, log_all=True, eval_log=False, max_rounds=60):
         self.num_rounds_played = 0
         self.display_map = display_map
         self.log_all = log_all
+        self.eval_log = eval_log
         self.max_rounds = max_rounds
         self.players = players
         for player in players:
@@ -195,14 +196,16 @@ class Game:
     def gameplay_loop(self):
         while True:
             if self.num_rounds_played >= self.max_rounds:
-                logging.info(f"\x1b[1m\x1b[31mGame ends in tie, reached upper limit for number of rounds: {self.max_rounds}\x1b[0m")
-                self.players_eliminated.extend(self.players)
+                if self.eval_log or self.log_all:
+                    logging.info(f"\x1b[1m\x1b[31mGame ends in tie, reached upper limit for number of rounds: {self.max_rounds}\x1b[0m")
+                
+                self.players_eliminated.extend(self.players) # add all remaining players to collect experiences for training
                 return self.num_rounds_played, 0, 1
 
             if self.num_players == 1:
-                #if self.log_all:
-                logging.info(f"\x1b[1m\x1b[32mGame won by player: {self.current_player} after {self.num_rounds_played} rounds\x1b[0m")
-
+                if self.log_all or self.eval_log:
+                    logging.info(f"\x1b[1m\x1b[32mGame won by player: {self.current_player} after {self.num_rounds_played} rounds\x1b[0m")
+                
                 rl_won = int(isinstance(self.players[0], PlayerRL))
                 return self.num_rounds_played, rl_won, 0
 
@@ -399,7 +402,7 @@ class Game:
             if len(defender_country.owner.countries) == 0:
                 reward += 100
                 eliminated_player = defender_country.owner
-                if self.log_all or isinstance(eliminated_player, PlayerRL):
+                if self.log_all or (self.eval_log and isinstance(eliminated_player, PlayerRL)):
                     logging.info(f"{eliminated_player} has been eliminated after {self.num_rounds_played} rounds")
 
                 self.players_eliminated.append(eliminated_player)
@@ -408,7 +411,7 @@ class Game:
                 self.num_players -= 1
                 if self.num_players == 1:
                     reward += 2000 # game won
-                    self.players_eliminated.append(self.players[0])
+                    self.players_eliminated.append(self.players[0]) # collect experiences of winner for training
 
             defender_country.owner = attacker_country.owner
             attacker_country.owner.add_country(defender_country)

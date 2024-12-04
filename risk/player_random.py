@@ -27,10 +27,16 @@ class PlayerRandom(Player):
             logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
         
         num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
-        max_attacks_per_round = random.randint(1, min(20, max(1, num_soldiers_total - 15)))
+        max_attacks_per_round = min(25, max(1, num_soldiers_total - 18))
+        max_attacks_per_round = random.randint(1, max_attacks_per_round)
+
         for _ in range(max_attacks_per_round):
             attack_options = self.game.get_attack_options(self)
             if len(attack_options) == 0:
+                return
+            
+            # sample early skip selection
+            if random.random() < 0.05:
                 return
             
             selected_attack = random.choice(attack_options)

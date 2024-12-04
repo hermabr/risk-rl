@@ -10,63 +10,113 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import torch.nn.utils
 import torch.optim.lr_scheduler 
+import pickle
+from datetime import datetime
 
+def dump_eval_results(eval_results):
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    with open(f'risk/eval_results/eval_results_{timestamp}.pk', 'wb') as f:
+        pickle.dump(eval_results, f)
 
-def save_model_checkpoint(model, episode):
-    torch.save(model.state_dict(), f'risk/model_checkpoints/rl_model_checkpoint_episode_{episode}.pt')
+def save_model_checkpoint(model, optimizer, episode):
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+    checkpoint = {
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'episode': episode,
+    }
+    torch.save(checkpoint, f'risk/model_checkpoints/rl_model_checkpoint_episode_{episode}_{timestamp}.pt')
 
-def train(num_episodes=10_000):
+def load_model_checkpoint(filepath, model, optimizer, device):
+    checkpoint = torch.load(filepath, map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    episode = checkpoint['episode']
+    return model, optimizer, episode
+
+# evaluate model against stronger opponentes
+def eval_model(model, device, n_episode, num_games=100):
+    logging.info(f"Evaluating model after {n_episode} training episodes")
+
+    num_rounds_ls = [] # to get distribution of game duration
+    game_wins = [] # RL won/lost game int bool (0, 1)
+    game_tied = [] # Game ended in tie int bool (0, 1) 
+    
+    for _ in tqdm(range(num_games), desc="Evaluating RL model"):
+        # tweak this, try different configurations
+        players = [
+                PlayerHeuristic("Player Heuristic 1"),
+                PlayerRL("Player RL 2", model, device),
+                PlayerRandom("Player Random 3"),
+                PlayerRandom("Player Random 4"),
+                PlayerRandom("Player Random 5"),
+            ]
+        
+        game = Game(players, display_map=False, log_all=False, eval_log=True)
+        num_rounds_game, rl_won, game_tie = game.gameplay_loop()
+        
+        num_rounds_ls.append(num_rounds_game)
+        game_wins.append(rl_won)
+        game_tied.append(game_tie)
+        game_wins.append(rl_won)
+    
+    logging.info(f"Current Eval tie rate after {n_episode} training episodes: {round(sum(game_tied)/num_games, 4)}")
+    logging.info(f"Current Eval win rate after {n_episode} training episodes: {round(sum(game_wins)/num_games, 4)}")
+    
+    return num_rounds_ls, game_wins, game_tied
+
+    
+def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
     logging_setup.init_logging(name='rl_training_log')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Running torch on device: {device}")
     
     model = RiskGNN(
-        in_channels_node=13, 
-        hidden_dim=64, 
-        num_actions=493 # number of possible attacks
-    ).to(device) 
-    
+            in_channels_node=13, 
+            hidden_dim=64, 
+            num_actions=493 # number of possible attacks
+        ).to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-4) # TODO Tune lr
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10000, gamma=0.1)
     
-    num_rounds_ls = [] # to get distribution of game duration
-    game_wins = [] # RL won/lost game int bool (0, 1)
-    game_tied = [] # Game ended in tie int bool (0, 1) 
+    start_episode = 0
+    if checkpoint_path:
+        model, optimizer, start_episode = load_model_checkpoint(checkpoint_path, model, optimizer, device)
+        logging.info(f"Resuming training from episode {start_episode}")
+    
 
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1000)
+    
+    eval_results = []
     for i in tqdm(range(num_episodes), desc="Training RL model"):
-        # also tried just playing against random, then the game always hits maximum
-        # round limit
+        # tweak this, try different configurations, should we use majority RL players?
         players = [
-            PlayerHeuristic("Player Heuristic 1"),
-            PlayerRL("Player RL 2", model, device),
+            PlayerRandom("Player Random 1"),
+            PlayerRandom("Player Random 2"),
             PlayerRL("Player RL 3", model, device),
-            PlayerRandom("Player Random 4"),
+            PlayerRL("Player RL 4", model, device),
             PlayerRandom("Player Random 5"),
         ]
-        game = Game(players, display_map=False, log_all=False)
         
-        num_rounds_game, rl_won, game_tie = game.gameplay_loop()
-        num_rounds_ls.append(num_rounds_game)
-        game_tied.append(game_tie)
-        
-        if i != 0 and i % 100 == 0:
-            logging.info(f"Current tie rate after {i+1} episodes: {round(sum(game_tied[-100:])/100, 4)}")
-
-        # only count games that did not end in tie for win rate
-        if not game_tie:
-             game_wins.append(rl_won)
-        
-        if len(game_wins) != 0 and len(game_wins) % 100 == 0:
-            logging.info(f"Current win rate after {i+1} episodes: {round(sum(game_wins[-100:])/100, 4)}")
-                   
+        game = Game(players, display_map=False, log_all=False, eval_log=False)
+        game.gameplay_loop()
+                    
         all_experiences = []
-        for player in game.players_eliminated:
+        # note that at end of game, the eliminated list includes all players, including winner
+        for player in game.players_eliminated: 
             if isinstance(player, PlayerRL):
                 all_experiences.extend(player.experiences)
         
         train_model(model, optimizer, all_experiences, game.action_lookup_table, device)
+        
+        if (i + 1) % eval_interval == 0:
+            # eval model
+            eval_results.append(eval_model(model, device, n_episode=i+1))
+        
+        if (i+1) % 5000 == 0 and (i+1) != num_episodes:
+            save_model_checkpoint(model, optimizer, i + 1 + start_episode)
     
-    save_model_checkpoint(model, num_episodes) # TODO maybe save at intervals?
+    save_model_checkpoint(model, optimizer, num_episodes + start_episode)
+    dump_eval_results(eval_results)
 
 def train_model(model, optimizer, experiences, action_lookup_table, device):
     states = []
@@ -118,6 +168,3 @@ def compute_policy_loss(model, states, edge_indices, valid_action_masks, action_
         total_loss += -log_prob * reward
     
     return total_loss
-
-
-
