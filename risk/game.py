@@ -43,7 +43,7 @@ class Game:
         
         self.num_players = len(self.players)
         self.num_players_start = self.num_players
-        logging.info(f"Started new game with {self.num_players_start} players")
+        logging.info(f"\nStarted new game with {self.num_players_start} players\n")
         
         self.used_cards = []
         self.country_conquered_in_round = False
@@ -92,6 +92,7 @@ class Game:
     # node/edge features for GNN
     def get_game_state_encoded(self, player: Player):
         # TODO look into adding more features for both nodes and edges
+        # add more node featurs, average army diff, max army diff(for both owner and oppenents, seperate indices)
         node_features = np.zeros((self.num_countries, 3)) # ownership, army_size player, army_size opponent
         edge_features = np.zeros((self.n_edges, 5)) # from current players' perspective, (is_border, army_diff, can_attack 1, 2, 3)?
 
@@ -138,7 +139,6 @@ class Game:
                 if border_country not in player.countries:
                     max_attack_soldiers = min(3, n_soldiers - 1)
                     for num_attack_soldiers in range(1, max_attack_soldiers + 1):
-                        # Calculate the correct index
                         idx = country_offset + 3 * border_idx + (num_attack_soldiers - 1)
                         attack_options_array[idx] = 1
     

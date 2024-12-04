@@ -34,12 +34,9 @@ def train(num_episodes=10_000):
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10000, gamma=0.1)
     
     num_rounds_ls = [] # to get distribution of game duration
-    win_rates = []
-    rl_wins = 0
-    game_cnt = 0
+    game_wins = []
 
     for i in tqdm(range(num_episodes), desc="Training RL model"):
-        logging.info(f"Episode: {i+1} of {num_episodes}")
         players = [
             PlayerHeuristic("Player 1"),
             PlayerRL("Player RL 2", model, device),
@@ -51,13 +48,11 @@ def train(num_episodes=10_000):
         
         num_rounds_game, rl_won = game.gameplay_loop()
         if num_rounds_game != 0:
-            game_cnt += 1
-            rl_wins += rl_won
-            win_rate = rl_wins/game_cnt
-            logging.info(f"Current win rate: {win_rate}")
-            win_rates.append(win_rate)
             num_rounds_ls.append(num_rounds_game)
-            
+            game_wins.append(rl_won)
+            if len(game_wins) % 100 == 0:
+                logging.info(f"Current win rate after {i+1} episodes: {round(sum(game_wins[-100:])/100, 4)}")
+                   
         all_experiences = []
         for player in game.players_eliminated:
             if isinstance(player, PlayerRL):
