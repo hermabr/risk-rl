@@ -98,14 +98,12 @@ class PlayerRL(Player):
         if self.game.log_all:
             logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
         
-        max_attacks_per_round = 15
+        num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
+        max_attacks_per_round = max(1, num_soldiers_total - 15)
         game_won = False
         no_attack = True
         
         for _ in range(max_attacks_per_round):
-            if self.game.num_players == 1:
-                break
-            
             node_features= self.game.get_game_state_encoded(self)
             attack_options_array = self.game.get_attack_options_encoded(self) # for valid action mask
             
@@ -125,7 +123,9 @@ class PlayerRL(Player):
             attack_idx, defend_idx, n_soldiers = self.game.action_lookup_table[action_idx]
             
             # handle skip action
-            if attack_idx != -1:
+            if attack_idx == -1:
+                break
+            else:
                 attack_country = self.game.countries[attack_idx]
                 no_attack = False
                 attack_country = self.game.countries[attack_idx]
@@ -157,7 +157,8 @@ class PlayerRL(Player):
             logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
         
         destination_countries = set() # set of countries that have received fortify troops in this round
-        max_fortify_moves = 10 # TODO: determine what is sensible here
+        num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
+        max_fortify_moves = max(1, num_soldiers_total - 15)
         for fortify_iter in range(max_fortify_moves):
             fortify_options_ranked = self.game.get_fortify_options(self)
             

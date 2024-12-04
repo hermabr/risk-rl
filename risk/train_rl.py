@@ -1,6 +1,7 @@
 from risk.game import Game
 from risk.player_heuristic import PlayerHeuristic
 from risk.player_rl import PlayerRL, RiskGNN
+from risk.player_random import PlayerRandom
 import risk.logging_setup as logging_setup
 import logging
 import torch.optim as optim
@@ -32,12 +33,14 @@ def train(num_episodes=10_000):
     game_wins = []
 
     for i in tqdm(range(num_episodes), desc="Training RL model"):
+        # also tried just playing against random, then the game always hits maximum
+        # round limit
         players = [
-            PlayerHeuristic("Player 1"),
+            PlayerHeuristic("Player Heuristic 1"),
             PlayerRL("Player RL 2", model, device),
-            PlayerHeuristic("Player 3"),
-            PlayerHeuristic("Player 4"),
-            PlayerHeuristic("Player 5")
+            PlayerRL("Player RL 3", model, device),
+            PlayerRandom("Player Random 4"),
+            PlayerRandom("Player Random 5"),
         ]
         game = Game(players, display_map=False, log_all=False)
         

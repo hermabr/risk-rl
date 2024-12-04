@@ -43,7 +43,9 @@ class Game:
         
         self.num_players = len(self.players)
         self.num_players_start = self.num_players
-        logging.info(f"\nStarted new game with {self.num_players_start} players\n")
+        
+        if self.log_all:
+            logging.info(f"\nStarted new game with {self.num_players_start} players\n")
         
         self.used_cards = []
         self.country_conquered_in_round = False
@@ -189,14 +191,16 @@ class Game:
     
     def gameplay_loop(self):
         while True:
-            if self.num_rounds_played > 250:
+            if self.num_rounds_played > 200: # 500 might be too much
                 logging.info("Hit upper limit of number of rounds")
                 self.players_eliminated.extend(self.players)
                 return -1, 0
 
             if self.num_players == 1:
+                #if self.log_all:
+                logging.info(f"\x1b[1m\x1b[32mGame won by player: {self.current_player} after {self.num_rounds_played} rounds\x1b[0m")
+
                 rl_won = int(isinstance(self.players[0], PlayerRL))
-                logging.info(f"\n\x1b[1m\x1b[32mGame won by player: {self.current_player} after {self.num_rounds_played} rounds\x1b[0m")
                 return self.num_rounds_played, rl_won
 
             match self.current_phase:
@@ -329,7 +333,7 @@ class Game:
         if self.display_map:
             self.visualize()
 
-        if isinstance(attacker, PlayerRL):
+        if isinstance(attacker, PlayerRL) and self.log_all:
             logging.info(f"Reward for this attack: {reward}")
         return reward
 
@@ -380,7 +384,8 @@ class Game:
             if len(defender_country.owner.countries) == 0:
                 reward += 100
                 eliminated_player = defender_country.owner
-                logging.info(f"\n{'!'*40}\n{eliminated_player} has been eliminated after {self.num_rounds_played} rounds\n{'!' *40}\n")
+                if self.log_all or isinstance(eliminated_player, PlayerRL):
+                    logging.info(f"{eliminated_player} has been eliminated after {self.num_rounds_played} rounds")
 
                 self.players_eliminated.append(eliminated_player)
                 eliminated_player_idx = self.players.index(eliminated_player)
