@@ -28,10 +28,11 @@ def assign_unique_colors(players: List[Player]) -> dict:
     return color_mapping
 
 class Game:
-    def __init__(self, players, display_map=True, log_all=True):
+    def __init__(self, players, display_map=True, log_all=True, max_rounds=60):
         self.num_rounds_played = 0
         self.display_map = display_map
         self.log_all = log_all
+        self.max_rounds = max_rounds
         self.players = players
         for player in players:
             player.game = self
@@ -97,8 +98,9 @@ class Game:
         # 9: min solider diff if player not holds territory
         # 10: max soldier diff if player not holds territory
         # 11: can attack territory
+        # 12: game round number, standardized
 
-        node_features = np.zeros((self.num_countries, 12))
+        node_features = np.zeros((self.num_countries, 13))
         for country_idx, country in enumerate(self.countries):
             country_n_soldiers = country.army.n_soldiers
             country_owner = country.army.owner
@@ -137,7 +139,8 @@ class Game:
                 node_features[:, idx] = node_features[:, idx] / max_val
             else:
                 node_features[:, idx] = 0
-
+        
+        node_features[:, 12] = self.num_rounds_played / self.max_rounds
         return node_features
                     
                                    
@@ -191,35 +194,37 @@ class Game:
     
     def gameplay_loop(self):
         while True:
-            if self.num_rounds_played > 200: # 500 might be too much
-                logging.info("Hit upper limit of number of rounds")
+            if self.num_rounds_played >= self.max_rounds:
+                logging.info(f"\x1b[1m\x1b[31mGame ends in tie, reached upper limit for number of rounds: {self.max_rounds}\x1b[0m")
                 self.players_eliminated.extend(self.players)
-                return -1, 0
+                return self.num_rounds_played, 0, 1
 
             if self.num_players == 1:
                 #if self.log_all:
                 logging.info(f"\x1b[1m\x1b[32mGame won by player: {self.current_player} after {self.num_rounds_played} rounds\x1b[0m")
 
                 rl_won = int(isinstance(self.players[0], PlayerRL))
-                return self.num_rounds_played, rl_won
+                return self.num_rounds_played, rl_won, 0
 
             match self.current_phase:
                 case GamePlayState.CARDS:
-                    self.num_rounds_played += 1
                     self.current_player.process_cards_phase()
                 case GamePlayState.DRAFT:
                     self.current_player.process_draft_phase()
                 case GamePlayState.ATTACK:
                     self.current_player.process_attack_phase()
                 case GamePlayState.FORTIFY:
-                    self.current_player.process_fortify_phase()
+                    self.current_player.process_fortify_phase() 
             self.next_phase()
     
     def visualize(self):
         self.game_map.draw_map()
 
     def next_player(self):
-        self.current_player = self.players[(self.players.index(self.current_player) + 1) % self.num_players]
+        next_player_idx = (self.players.index(self.current_player) + 1) % self.num_players
+        if next_player_idx == 0:
+            self.num_rounds_played += 1
+        self.current_player = self.players[next_player_idx]
         self.country_conquered_in_round = False
 
     def next_phase(self):
@@ -291,6 +296,16 @@ class Game:
         player.unassigned_soldiers -= n_soldiers
         if self.display_map:
             self.visualize()
+
+    def get_soldier_diffs(self, player):
+        diffs = []
+        for country in player.countries:
+            n_soldiers = country.army.n_soldiers
+            for neighbor in self.game_map.neighbors(country):
+                if neighbor not in player.countries:
+                    diffs.append(n_soldiers - neighbor.army.n_soldiers)
+        
+        return diffs
 
     def get_attack_options(self, player):
         options = []
@@ -392,7 +407,7 @@ class Game:
                 self.players.pop(eliminated_player_idx)
                 self.num_players -= 1
                 if self.num_players == 1:
-                    reward += 500 # game won
+                    reward += 2000 # game won
                     self.players_eliminated.append(self.players[0])
 
             defender_country.owner = attacker_country.owner
@@ -406,7 +421,7 @@ class Game:
             defender_country.army = Army(attacker.owner, soldiers_to_move)
 
             if self.get_player_continents(attacker_country.owner) != prev_player_continents:
-                reward += 50
+                reward += 100
             
             return True, reward
 

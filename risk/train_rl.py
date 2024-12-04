@@ -21,7 +21,7 @@ def train(num_episodes=10_000):
     logging.info(f"Running torch on device: {device}")
     
     model = RiskGNN(
-        in_channels_node=12, 
+        in_channels_node=13, 
         hidden_dim=64, 
         num_actions=493 # number of possible attacks
     ).to(device) 
@@ -30,7 +30,8 @@ def train(num_episodes=10_000):
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10000, gamma=0.1)
     
     num_rounds_ls = [] # to get distribution of game duration
-    game_wins = []
+    game_wins = [] # RL won/lost game int bool (0, 1)
+    game_tied = [] # Game ended in tie int bool (0, 1) 
 
     for i in tqdm(range(num_episodes), desc="Training RL model"):
         # also tried just playing against random, then the game always hits maximum
@@ -44,12 +45,19 @@ def train(num_episodes=10_000):
         ]
         game = Game(players, display_map=False, log_all=False)
         
-        num_rounds_game, rl_won = game.gameplay_loop()
-        if num_rounds_game != 0:
-            num_rounds_ls.append(num_rounds_game)
-            game_wins.append(rl_won)
-            if len(game_wins) % 100 == 0:
-                logging.info(f"Current win rate after {i+1} episodes: {round(sum(game_wins[-100:])/100, 4)}")
+        num_rounds_game, rl_won, game_tie = game.gameplay_loop()
+        num_rounds_ls.append(num_rounds_game)
+        game_tied.append(game_tie)
+        
+        if i != 0 and i % 100 == 0:
+            logging.info(f"Current tie rate after {i+1} episodes: {round(sum(game_tied[-100:])/100, 4)}")
+
+        # only count games that did not end in tie for win rate
+        if not game_tie:
+             game_wins.append(rl_won)
+        
+        if len(game_wins) != 0 and len(game_wins) % 100 == 0:
+            logging.info(f"Current win rate after {i+1} episodes: {round(sum(game_wins[-100:])/100, 4)}")
                    
         all_experiences = []
         for player in game.players_eliminated:

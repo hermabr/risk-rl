@@ -24,13 +24,20 @@ class PlayerHeuristic(Player):
         if self.game.log_all:
             logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
 
-        num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
-        
         # can make heuristic "better" by increasing the upper limit, now set to 50 attacks per round
+        num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
         max_attacks_per_round = min(50, max(1, num_soldiers_total - 18))
-        for attack_iter in range(max_attacks_per_round):
+        attack_iter = 0
+
+        while True:
             attack_options = self.game.get_attack_options(self)
             if len(attack_options) == 0:
+                return
+            
+            # soldiers diffs are never empty at this step, 
+            # if empty list(game won), then pref if will trigger and return
+            max_soldier_diff = max(self.game.get_soldier_diffs(self))
+            if attack_iter > max_attacks_per_round and max_soldier_diff < 10:
                 return
             
             selected_attack = attack_options[0]
@@ -43,6 +50,7 @@ class PlayerHeuristic(Player):
 
             attacking_soldiers = min(3, attacker_country_n_soldiers-1)
             self.game.attack(self, attacker_country, defender_country, attacking_soldiers)
+            attack_iter += 1
 
     # this is just a basic heuristic, defining and coding a near optimal fortify strategy
     # would be difficult, but this is something
