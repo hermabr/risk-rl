@@ -89,12 +89,13 @@ def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
     eval_results = []
     for i in tqdm(range(num_episodes), desc="Training RL model"):
         # tweak this, try different configurations, should we use majority RL players?
+        # was using only random opponents, that way the game ends in tie too often
         players = [
             PlayerRandom("Player Random 1"),
             PlayerRandom("Player Random 2"),
             PlayerRL("Player RL 3", model, device),
             PlayerRL("Player RL 4", model, device),
-            PlayerRandom("Player Random 5"),
+            PlayerHeuristic("Player Heuristic 5"),
         ]
         
         game = Game(players, display_map=False, log_all=False, eval_log=False)
@@ -112,7 +113,7 @@ def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
             # eval model
             eval_results.append(eval_model(model, device, n_episode=i+1))
         
-        if (i+1) % 5000 == 0 and (i+1) != num_episodes:
+        if (i + 1) % 1000 == 0:
             save_model_checkpoint(model, optimizer, i + 1 + start_episode)
     
     save_model_checkpoint(model, optimizer, num_episodes + start_episode)
@@ -165,6 +166,6 @@ def compute_policy_loss(model, states, edge_indices, valid_action_masks, action_
         probs = F.softmax(masked_logits, dim=0)
         selected_prob = probs[action_idx]
         log_prob = torch.log(selected_prob + 1e-8)
-        total_loss += -log_prob * reward
+        total_loss += -log_prob * reward # policy gradient ascent update
     
     return total_loss

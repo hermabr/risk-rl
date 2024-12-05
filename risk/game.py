@@ -353,7 +353,9 @@ class Game:
 
         if isinstance(attacker, PlayerRL) and self.log_all:
             logging.info(f"Reward for this attack: {reward}")
-        return reward
+        
+        game_won = self.num_players == 1
+        return reward, game_won
 
     @staticmethod
     def roll_dice(n):
@@ -400,7 +402,7 @@ class Game:
             defender_country.owner.remove_country(defender_country)
 
             if len(defender_country.owner.countries) == 0:
-                reward += 100
+                reward += 500
                 eliminated_player = defender_country.owner
                 if self.log_all or (self.eval_log and isinstance(eliminated_player, PlayerRL)):
                     logging.info(f"{eliminated_player} has been eliminated after {self.num_rounds_played} rounds")
@@ -410,7 +412,7 @@ class Game:
                 self.players.pop(eliminated_player_idx)
                 self.num_players -= 1
                 if self.num_players == 1:
-                    reward += 2000 # game won
+                    reward += 10_000 # game won
                     self.players_eliminated.append(self.players[0]) # collect experiences of winner for training
 
             defender_country.owner = attacker_country.owner
@@ -424,7 +426,7 @@ class Game:
             defender_country.army = Army(attacker.owner, soldiers_to_move)
 
             if self.get_player_continents(attacker_country.owner) != prev_player_continents:
-                reward += 100
+                reward += 1000
             
             return True, reward
 

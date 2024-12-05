@@ -107,11 +107,7 @@ class PlayerRL(Player):
         attack_iter = 0
         while True:
             soldier_diffs = self.game.get_soldier_diffs(self)
-            if not soldier_diffs:
-                game_won = True
-                break
-
-            max_soldier_diff = max(self.game.get_soldier_diffs(self))
+            max_soldier_diff = max(soldier_diffs)
             if attack_iter != 0 and attack_iter > max_attacks_per_round and max_soldier_diff < 10:
                 break
 
@@ -131,7 +127,6 @@ class PlayerRL(Player):
             action_probs = F.softmax(masked_logits, dim=0)
             action_idx = torch.multinomial(action_probs, num_samples=1).item()
             attack_idx, defend_idx, n_soldiers = self.game.action_lookup_table[action_idx]
-
             attack_iter += 1
 
             # handle skip action
@@ -142,7 +137,7 @@ class PlayerRL(Player):
                 no_attack = False
                 attack_country = self.game.countries[attack_idx]
                 defend_country = self.game.countries[defend_idx]
-                reward = self.game.attack(self, attack_country, defend_country, n_soldiers)
+                reward, game_won = self.game.attack(self, attack_country, defend_country, n_soldiers)
 
                 current_round_experiences.append({
                     'node_features': node_features_tensor.cpu(),
@@ -152,9 +147,12 @@ class PlayerRL(Player):
                     'reward': reward,
                     'action_probs': action_probs.detach().cpu()
                 })
+
+                if game_won:
+                    break
         
         if not game_won and not no_attack and self.game.num_rounds_played == self.game.max_rounds - 1:
-            current_round_experiences[-1]["reward"] = -1000 # assign large negative reward if game ends in tie
+            current_round_experiences[-1]["reward"] = -1000
 
         if not game_won and no_attack:
             current_round_experiences.append({
@@ -165,10 +163,9 @@ class PlayerRL(Player):
                     'reward': -5 if not self.game.num_rounds_played == self.game.max_rounds - 1 else -1000, # TODO tune this
                     'action_probs': action_probs.detach().cpu()
                 })
-
+        
         self.experiences.extend(current_round_experiences)
-
-
+        
     def process_fortify_phase(self):
         if self.game.log_all:
             logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
