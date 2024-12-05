@@ -402,7 +402,7 @@ class Game:
             defender_country.owner.remove_country(defender_country)
 
             if len(defender_country.owner.countries) == 0:
-                reward += 500
+                reward += 100
                 eliminated_player = defender_country.owner
                 if self.log_all or (self.eval_log and isinstance(eliminated_player, PlayerRL)):
                     logging.info(f"{eliminated_player} has been eliminated after {self.num_rounds_played} rounds")

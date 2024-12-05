@@ -151,16 +151,13 @@ class PlayerRL(Player):
                 if game_won:
                     break
         
-        if not game_won and not no_attack and self.game.num_rounds_played == self.game.max_rounds - 1:
-            current_round_experiences[-1]["reward"] = -1000
-
-        if not game_won and no_attack:
+        if no_attack:
             current_round_experiences.append({
                     'node_features': node_features_tensor.cpu(),
                     'edge_index': edge_index_tensor.cpu(),
                     'valid_action_mask': valid_action_mask.cpu(),
                     'action_idx': action_idx,
-                    'reward': -5 if not self.game.num_rounds_played == self.game.max_rounds - 1 else -1000, # TODO tune this
+                    'reward': -5, # sharp penalty for 
                     'action_probs': action_probs.detach().cpu()
                 })
         
