@@ -28,7 +28,7 @@ def assign_unique_colors(players: List[Player]) -> dict:
     return color_mapping
 
 class Game:
-    def __init__(self, players, display_map=True, log_all=True, eval_log=False, max_rounds=60):
+    def __init__(self, players, display_map=True, log_all=True, eval_log=False, max_rounds=75):
         self.num_rounds_played = 0
         self.display_map = display_map
         self.log_all = log_all
@@ -99,9 +99,14 @@ class Game:
         # 9: min solider diff if player not holds territory
         # 10: max soldier diff if player not holds territory
         # 11: can attack territory
-        # 12: game round number, standardized
+        # 12: if territory conquered, then continent secured 
+        # 13: game round number, standardized
 
-        node_features = np.zeros((self.num_countries, 13))
+        node_features = np.zeros((self.num_countries, 14))
+        neighbors = set()
+        for c in player.countries:
+            neighbors.update(self.game_map.neighbors(c))
+        
         for country_idx, country in enumerate(self.countries):
             country_n_soldiers = country.army.n_soldiers
             country_owner = country.army.owner
@@ -112,12 +117,20 @@ class Game:
             else:
                 node_features[country_idx, 2] = country_n_soldiers
             
-            neighbors = set()
-            for c in player.countries:
-                neighbors.update(self.game_map.neighbors(c))
             can_attack = int(not own_country and country in neighbors)
-            node_features[country_idx, 11] = can_attack
-            
+            node_features[country_idx, 12] = can_attack
+
+            if can_attack:
+                # check if conquering country will secure continent
+                continent = country.continent
+                remaining_enemy_countries = [
+                        c for c in continent.countries if c.owner != player and c != country
+                    ]
+                if len(remaining_enemy_countries) == 0:
+                    continent_owners = set([c.owner.name for c in continent.countries])
+                    assert len(continent_owners) == 2
+                    node_features[country_idx, 13] = 1
+
             soldier_diffs = [country_n_soldiers - c.army.n_soldiers 
                 for c in self.game_map.neighbors(country)
                     if c not in country_owner.countries

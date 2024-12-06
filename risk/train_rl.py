@@ -45,7 +45,7 @@ def eval_model(model, device, n_episode, num_games=100):
     for _ in tqdm(range(num_games), desc="Evaluating RL model"):
         # tweak this, try different configurations
         players = [
-                PlayerHeuristic("Player Heuristic 1"),
+                PlayerRandom("Player Random 1"),
                 PlayerRL("Player RL 2", model, device),
                 PlayerRandom("Player Random 3"),
                 PlayerRandom("Player Random 4"),
@@ -67,12 +67,12 @@ def eval_model(model, device, n_episode, num_games=100):
 
     
 def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
-    logging_setup.init_logging(name='rl_training_log')
+    logging_setup.init_logging(name='rl_training_new_log')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Running torch on device: {device}")
     
     model = RiskGNN(
-            in_channels_node=13, 
+            in_channels_node=14, # number of features in node embeddings 
             hidden_dim=64, 
             num_actions=493 # number of possible attacks
         ).to(device)
