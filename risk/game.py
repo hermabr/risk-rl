@@ -208,11 +208,17 @@ class Game:
     
     def gameplay_loop(self):
         while True:
+            if not any([isinstance(p, PlayerRL) for p in self.players]):
+                if self.eval_log or self.log_all:
+                    logging.info(f"\x1b[1m\x1b[31mGame Lost, all RL players eliminated after {self.num_rounds_played} Rounds\x1b[0m")
+
+                return self.num_rounds_played, 0, 0
+
             if self.num_rounds_played >= self.max_rounds:
                 if self.eval_log or self.log_all:
-                    logging.info(f"\x1b[1m\x1b[31mGame ends in tie, reached upper limit for number of rounds: {self.max_rounds}\x1b[0m")
+                    logging.info(f"\x1b[1m\x1b[33mGame ends in tie, reached upper limit for number of rounds: {self.max_rounds}\x1b[0m")
                 
-                self.players_eliminated.extend(self.players) # add all remaining players to collect experiences for training
+                self.players_eliminated.extend(self.players) # add all remaining players to collect experiences for training to ensure RL exps are included
                 return self.num_rounds_played, 0, 1
 
             if self.num_players == 1:

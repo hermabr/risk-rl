@@ -13,9 +13,9 @@ import torch.optim.lr_scheduler
 import pickle
 from datetime import datetime
 
-def dump_eval_results(eval_results):
+def dump_eval_results(eval_results, episode):
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
-    with open(f'risk/eval_results/eval_results_{timestamp}.pk', 'wb') as f:
+    with open(f'risk/eval_results/eval_results_{episode}_{timestamp}.pk', 'wb') as f:
         pickle.dump(eval_results, f)
 
 def save_model_checkpoint(model, optimizer, episode):
@@ -110,14 +110,15 @@ def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
         train_model(model, optimizer, all_experiences, game.action_lookup_table, device)
         
         if (i + 1) % eval_interval == 0:
-            # eval model
             eval_results.append(eval_model(model, device, n_episode=i+1))
+            if (i + 1) != num_episodes:
+                dump_eval_results(eval_results, i + 1 + start_episode)
         
-        if (i + 1) % 1000 == 0:
+        if (i + 1) % 1000 == 0 and (i + 1) != num_episodes:
             save_model_checkpoint(model, optimizer, i + 1 + start_episode)
     
     save_model_checkpoint(model, optimizer, num_episodes + start_episode)
-    dump_eval_results(eval_results)
+    dump_eval_results(eval_results, num_episodes + start_episode)
 
 def train_model(model, optimizer, experiences, action_lookup_table, device):
     states = []
