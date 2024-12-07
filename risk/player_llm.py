@@ -6,16 +6,45 @@ from collections import defaultdict
 from risk.card import CardType
 from risk.country import *
 from risk.player import Player
-
-DELAY_TIME = 2 # seconds
+import csv
+import os
+from datetime import datetime
 
 class PlayerLLM(Player):
-    def __init__(self, name, model, tokenizer, llm_number_tokens):
+    def __init__(self, name, model, tokenizer, llm_number_tokens, csv_log_file="llm_decisions.csv"):
         super().__init__(name)
         self.model = model
         self.tokenizer = tokenizer
         self.llm_number_tokens = llm_number_tokens
         self.current_seed = 0
+        
+        # Initialize CSV logging
+        self.csv_log_file = csv_log_file
+        self._initialize_csv()
+
+    def _initialize_csv(self):
+        # If file doesn't exist, write the header
+        if not os.path.exists(self.csv_log_file):
+            with open(self.csv_log_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # You can adjust the header fields as desired.
+                writer.writerow(["timestamp", "player_name", "prompt", "choices", "probabilities", "selected_choice"])
+
+    def _log_decision(self, prompt, choices, probabilities_dict, selected_choice):
+        # Log decision to CSV
+        timestamp = datetime.utcnow().isoformat()
+        # Convert probabilities to a readable string
+        probabilities_str = "; ".join([f"{c}: {p:.4f}" for c, p in probabilities_dict.items()])
+        with open(self.csv_log_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                timestamp,
+                self.name,
+                prompt,
+                " | ".join(choices),
+                probabilities_str,
+                selected_choice
+            ])
 
     def _get_choice_probabilities(self, prompt, choices, NUM_SEEDS=5):
         if len(choices) == 2:
@@ -42,36 +71,42 @@ class PlayerLLM(Player):
             return probabilities
 
         final_probabilities = defaultdict(float)
-        #  assert len(choices) <= 99
 
         for _ in tqdm(range(NUM_SEEDS), desc="choosing", leave=False):
             self.current_seed += 1
             random.seed(self.current_seed)
-            choices = sorted(choices)
-            random.shuffle(choices)
-            if len(choices) >= 100:
-                choices = choices[:99]
-            prompt_with_choices = prompt + "\n\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(choices)]) + "\n\nChoice: "
+            shuffled_choices = sorted(choices)
+            random.shuffle(shuffled_choices)
+            if len(shuffled_choices) >= 100:
+                shuffled_choices = shuffled_choices[:99]
+            prompt_with_choices = prompt + "\n\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(shuffled_choices)]) + "\n\nChoice: "
 
             probabilities = get_raw_probabilities(prompt_with_choices)
 
             total_probability_mass = 0
-
-            for i in range(1, len(choices)+1):
+            for i in range(1, len(shuffled_choices)+1):
                 total_probability_mass += probabilities[0, self.llm_number_tokens[i]].item()
 
             assert total_probability_mass >= 0.5
 
-            for i in range(1, len(choices)+1):
-                #  print(f"{i}) {choices[i-1]}: {probabilities[0, all_number_tokens[i]].item()/total_probability_mass:.1%}")
-                final_probabilities[choices[i-1]] += probabilities[0, self.llm_number_tokens[i]].item()/total_probability_mass / NUM_SEEDS
+            for i in range(1, len(shuffled_choices)+1):
+                # Add normalized probability mass
+                final_probabilities[shuffled_choices[i-1]] += probabilities[0, self.llm_number_tokens[i]].item()/total_probability_mass / NUM_SEEDS
 
-        #  return sorted(final_probabilities.items(), key=lambda x: -x[1])
         total_mass = sum(final_probabilities.values())
         assert abs(total_mass - 1) < 0.01
 
-        choices, probabilities = zip(*final_probabilities.items())
-        selected_choice = random.choices(choices, weights=probabilities, k=1)[0]
+        # Convert final_probabilities back to a stable ordering
+        # final_probabilities is a dict {choice: probability}
+        # Sort by -prob for stable selection in random.choices
+        sorted_items = sorted(final_probabilities.items(), key=lambda x: x[0])  # sort by choice text
+        choices_list, prob_values = zip(*sorted_items)
+
+        # Randomly select based on computed probabilities
+        selected_choice = random.choices(choices_list, weights=prob_values, k=1)[0]
+
+        # Log decision
+        self._log_decision(prompt, choices, dict(final_probabilities), selected_choice)
 
         return selected_choice
 
@@ -168,7 +203,10 @@ class PlayerLLM(Player):
             n_soldiers = attacker_country.army.n_soldiers
 
             if n_soldiers-1 > 1:
-                attacking_soldiers = int(self._get_choice_probabilities(self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", [f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))]).split()[1])
+                attacking_soldiers = int(self._get_choice_probabilities(
+                    self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", 
+                    [f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))]
+                ).split()[1])
             else:
                 attacking_soldiers = 1
 
@@ -184,7 +222,7 @@ class PlayerLLM(Player):
             text_state += "\nFortify options:\n"
             fortify_choices = []
             fortify_from_to = []
-            for (origin_country, dest_country, origin_troop_diff, dest_troop_diff, origin_country.army.n_soldiers, dest_country.army.n_soldiers) in sorted(self.game.get_fortify_options(self)):
+            for (origin_country, dest_country) in [(o,d) for (o,d,_,_,_,_) in self.game.get_fortify_options(self)]:
                 fortify_choices += [f"Move soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldier"]
                 fortify_from_to += [(origin_country, dest_country)]
             if len(fortify_choices) == 0:
