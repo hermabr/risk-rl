@@ -13,9 +13,9 @@ import torch.optim.lr_scheduler
 import pickle
 from datetime import datetime
 
-def dump_eval_results(eval_results, episode):
+def dump_eval_results(eval_results, episode, name='heuristic'):
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
-    with open(f'risk/eval_results/eval_results_{episode}_{timestamp}.pk', 'wb') as f:
+    with open(f'risk/eval_results/eval_results_{name}_{episode}_{timestamp}.pk', 'wb') as f:
         pickle.dump(eval_results, f)
 
 def save_model_checkpoint(model, optimizer, episode):
@@ -45,7 +45,7 @@ def eval_model(model, device, n_episode, num_games=100):
     for _ in tqdm(range(num_games), desc="Evaluating RL model"):
         # tweak this, try different configurations
         players = [
-                PlayerRandom("Player Random 1"),
+                PlayerHeuristic("Player Heuristic 1"),
                 PlayerRL("Player RL 2", model, device),
                 PlayerRandom("Player Random 3"),
                 PlayerRandom("Player Random 4"),
@@ -67,7 +67,7 @@ def eval_model(model, device, n_episode, num_games=100):
 
     
 def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
-    logging_setup.init_logging(name='rl_training_new_log')
+    logging_setup.init_logging(name='rl_training_new_rewards_latest_heuristic_log')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Running torch on device: {device}")
     
@@ -76,17 +76,21 @@ def train(num_episodes=20_000, eval_interval=1000, checkpoint_path=None):
             hidden_dim=64, 
             num_actions=493 # number of possible attacks
         ).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-4) # TODO Tune lr
+    optimizer = optim.Adam(model.parameters(), lr=5e-5) # TODO Tune lr
     
     start_episode = 0
     if checkpoint_path:
         model, optimizer, start_episode = load_model_checkpoint(checkpoint_path, model, optimizer, device)
         logging.info(f"Resuming training from episode {start_episode}")
     
-
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1000)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5000)
     
     eval_results = []
+
+    # eval initial untrained model
+    eval_results.append(eval_model(model, device, n_episode=0))
+    dump_eval_results(eval_results, start_episode)
+    
     for i in tqdm(range(num_episodes), desc="Training RL model"):
         # tweak this, try different configurations, should we use majority RL players?
         # was using only random opponents, that way the game ends in tie too often

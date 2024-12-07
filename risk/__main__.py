@@ -7,7 +7,6 @@ import risk.play_game as play
 # uncomment this to play a game
 #play.play()
 
-logging_setup.init_logging("rl_training_log")
 try:
     training.train(num_episodes=30_000, eval_interval=200) # play more games
     

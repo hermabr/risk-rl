@@ -99,7 +99,7 @@ class PlayerRL(Player):
             logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
         
         num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
-        max_attacks_per_round = min(50, max(1, num_soldiers_total - 18))
+        max_attacks_per_round = min(25, max(1, num_soldiers_total - 18))
         game_won = False
         no_attack = True
         current_round_experiences = []
@@ -108,7 +108,7 @@ class PlayerRL(Player):
         while True:
             soldier_diffs = self.game.get_soldier_diffs(self)
             max_soldier_diff = max(soldier_diffs)
-            if attack_iter != 0 and attack_iter > max_attacks_per_round and max_soldier_diff < 10:
+            if attack_iter != 0 and attack_iter > max_attacks_per_round and max_soldier_diff < 5:
                 break
 
             node_features= self.game.get_game_state_encoded(self)
@@ -157,7 +157,7 @@ class PlayerRL(Player):
                     'edge_index': edge_index_tensor.cpu(),
                     'valid_action_mask': valid_action_mask.cpu(),
                     'action_idx': action_idx,
-                    'reward': -5, # sharp penalty for 
+                    'reward': -25, #sharp penatly for not making an attack in round
                     'action_probs': action_probs.detach().cpu()
                 })
         

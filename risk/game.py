@@ -10,6 +10,7 @@ import logging
 import matplotlib.colors as mcolors
 import numpy as np
 import bisect
+import math
 
 COLOR_PALETTE = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.CSS4_COLORS.values())
 
@@ -33,7 +34,7 @@ class Game:
         self.display_map = display_map
         self.log_all = log_all
         self.eval_log = eval_log
-        self.max_rounds = max_rounds
+        self.max_rounds = max_rounds # using same max_rounds to compare with old reward scheme
         self.players = players
         for player in players:
             player.game = self
@@ -154,7 +155,7 @@ class Game:
             else:
                 node_features[:, idx] = 0
         
-        node_features[:, 12] = self.num_rounds_played / self.max_rounds
+        node_features[:, 12] = (self.num_rounds_played + 1) / self.max_rounds
         return node_features
                     
                                    
@@ -379,6 +380,16 @@ class Game:
     @staticmethod
     def roll_dice(n):
         return sorted([random.randint(1, 6) for _ in range(n)], reverse=True)
+    
+    # win territory reward decays exponentially with number of rounds played
+    def reward_win_territory(self, start_reward=30, lambda_=0.1):
+        t = self.num_rounds_played
+        T = self.max_rounds
+        if t >= T:
+            return 0.0
+        numerator = math.exp(-lambda_ * t) - math.exp(-lambda_ * T)
+        denominator = 1.0 - math.exp(-lambda_ * T)
+        return start_reward * (numerator / denominator)
 
     # return True/False battle won
     def battle(self, attacker_country: Country, defender_country: Country, attacking_soldiers: int):
@@ -415,13 +426,13 @@ class Game:
             logging.info(f"\x1b[31mAttacker loses \x1b[33m{attacker_loss}\x1b[0m\x1b[31m soldiers\x1b[0m")
 
         if defender.n_soldiers <= 0:
-            reward += 10
+            reward += self.reward_win_territory()
             if self.log_all:
                 logging.info(f"\x1b[1m\x1b[31m{defender_country} has been conquered!\x1b[0m")
             defender_country.owner.remove_country(defender_country)
 
             if len(defender_country.owner.countries) == 0:
-                reward += 100
+                reward += 5000
                 eliminated_player = defender_country.owner
                 if self.log_all or (self.eval_log and isinstance(eliminated_player, PlayerRL)):
                     logging.info(f"{eliminated_player} has been eliminated after {self.num_rounds_played} rounds")
@@ -431,7 +442,7 @@ class Game:
                 self.players.pop(eliminated_player_idx)
                 self.num_players -= 1
                 if self.num_players == 1:
-                    reward += 10_000 # game won
+                    reward += 50_000 # game won
                     self.players_eliminated.append(self.players[0]) # collect experiences of winner for training
 
             defender_country.owner = attacker_country.owner
@@ -449,7 +460,6 @@ class Game:
             
             return True, reward
 
-        reward -= 2 # unsuccessful attack
         return False, reward
 
     def get_player_continents(self, player):

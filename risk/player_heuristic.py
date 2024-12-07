@@ -26,7 +26,7 @@ class PlayerHeuristic(Player):
 
         # can make heuristic "better" by increasing the upper limit, now set to 50 attacks per round
         num_soldiers_total = sum(c.army.n_soldiers for c in self.countries)
-        max_attacks_per_round = min(50, max(1, num_soldiers_total - 18))
+        max_attacks_per_round = min(25, max(1, num_soldiers_total - 18))
         attack_iter = 0
 
         while True:
@@ -37,7 +37,7 @@ class PlayerHeuristic(Player):
             # soldiers diffs are never empty at this step, 
             # if empty list(game won), then pref if will trigger and return
             max_soldier_diff = max(self.game.get_soldier_diffs(self))
-            if attack_iter > max_attacks_per_round and max_soldier_diff < 10:
+            if attack_iter > max_attacks_per_round and max_soldier_diff < 5:
                 return
             
             selected_attack = attack_options[0]
