@@ -47,33 +47,44 @@ if USE_LLM:
 else:
     pass
 
-if USE_LLM:
-    players = [
-        PlayerRandom("Player 1"),
-        PlayerRandom("Player 2"),
-        PlayerLLM("Player 3", model, tokenizer, llm_number_tokens),
-        PlayerRandom("Player 4"),
-        PlayerRandom("Player 5"),
-    ]
-else:
-    players = [
-        PlayerHeuristic("Player 1"),
-        PlayerHeuristic("Player 2"),
-        PlayerHeuristic("Player 3"),
-        PlayerHeuristic("Player 4"),
-        PlayerHeuristic("Player 5"),
-    ]
+for i in range(10):
+    for use_heuristic in [True, False]:
+        if USE_LLM:
+            if use_heuristic:
+                players = [
+                    PlayerRandom("Player 1"),
+                    PlayerRandom("Player 2"),
+                    PlayerLLM("Player 3", model, tokenizer, llm_number_tokens, f"llm_log_{i}_random_opponents.csv"),
+                    PlayerRandom("Player 4"),
+                    PlayerRandom("Player 5"),
+                ]
+            else:
+                players = [
+                    PlayerHeuristic("Player 1"),
+                    PlayerHeuristic("Player 2"),
+                    PlayerLLM("Player 3", model, tokenizer, llm_number_tokens, f"llm_log_{i}_heuristic_opponents.csv"),
+                    PlayerHeuristic("Player 4"),
+                    PlayerHeuristic("Player 5"),
+                ]
+        else:
+            players = [
+                PlayerHeuristic("Player 1"),
+                PlayerHeuristic("Player 2"),
+                PlayerHeuristic("Player 3"),
+                PlayerHeuristic("Player 4"),
+                PlayerHeuristic("Player 5"),
+            ]
 
-game = Game(players, display_map=False, delay=False) 
+        game = Game(players, display_map=False, delay=False, max_turns=1000)
 
-def test_decode_attack_options(game: Game):
-    for attack_options in range(game.total_attack_options_cnt):
-        attack_country, defend_country, n_soldiers = game.decode_attack_option(attack_options)
-        print(attack_country, defend_country, n_soldiers)
+        def test_decode_attack_options(game: Game):
+            for attack_options in range(game.total_attack_options_cnt):
+                attack_country, defend_country, n_soldiers = game.decode_attack_option(attack_options)
+                print(attack_country, defend_country, n_soldiers)
 
-try:
-    test_decode_attack_options(game)
-    game.gameplay_loop()
-except Exception as e:
-    logging.error("An error occurred: %s", str(e))
-    logging.error("Stack trace: %s", traceback.format_exc())
+        try:
+            test_decode_attack_options(game)
+            game.gameplay_loop()
+        except Exception as e:
+            logging.error("An error occurred: %s", str(e))
+            logging.error("Stack trace: %s", traceback.format_exc())

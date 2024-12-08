@@ -1,57 +1,83 @@
+import json
 import time
 import random
 import logging
+import pandas as pd
 from tqdm.auto import tqdm
 from collections import defaultdict
 from risk.card import CardType
 from risk.country import *
 from risk.player import Player
-import csv
-import os
-from datetime import datetime
 
 class PlayerLLM(Player):
-    def __init__(self, name, model, tokenizer, llm_number_tokens, csv_log_file="llm_decisions.csv"):
+    def __init__(self, name, model, tokenizer, llm_number_tokens, log_file):
         super().__init__(name)
         self.model = model
         self.tokenizer = tokenizer
         self.llm_number_tokens = llm_number_tokens
         self.current_seed = 0
-        
-        # Initialize CSV logging
-        self.csv_log_file = csv_log_file
-        self._initialize_csv()
+        self.log = []
+        self.log_file = log_file
 
-    def _initialize_csv(self):
-        # If file doesn't exist, write the header
-        if not os.path.exists(self.csv_log_file):
-            with open(self.csv_log_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                # You can adjust the header fields as desired.
-                writer.writerow(["timestamp", "player_name", "prompt", "choices", "probabilities", "selected_choice"])
+    def _get_game_state(self):
+        """
+        Provides a dictionary representation of the current game state for logging purposes.
+        """
+        game_state = {
+            "player_name": self.name,
+            "regions": [],
+            "soldiers_per_player": defaultdict(int),
+            "cards_on_hand": {
+                "Infantry": self.get_cards().get(CardType.INFANTRY, 0),
+                "Cavalry": self.get_cards().get(CardType.CAVALRY, 0),
+                "Artillery": self.get_cards().get(CardType.ARTILLERY, 0),
+            },
+            "current_turn": self.name,
+            "turn_number": self.game.turn_number,
+        }
 
-    def _log_decision(self, prompt, choices, probabilities_dict, selected_choice):
-        # Log decision to CSV
-        timestamp = datetime.utcnow().isoformat()
-        # Convert probabilities to a readable string
-        probabilities_str = "; ".join([f"{c}: {p:.4f}" for c, p in probabilities_dict.items()])
-        with open(self.csv_log_file, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                timestamp,
-                self.name,
-                prompt,
-                " | ".join(choices),
-                probabilities_str,
-                selected_choice
-            ])
+        # Populate regions
+        for country in self.game.countries:
+            country_info = {
+                "country_name": country.name,
+                "soldiers": country.army.n_soldiers,
+                "owner": country.owner.name if country.owner else "Unowned"
+            }
+            game_state["regions"].append(country_info)
+            if country.owner:
+                game_state["soldiers_per_player"][country.owner.name] += country.army.n_soldiers
 
-    def _get_choice_probabilities(self, prompt, choices, NUM_SEEDS=5):
+        # Convert defaultdict to a normal dict for serialization
+        game_state["soldiers_per_player"] = dict(game_state["soldiers_per_player"])
+
+        return game_state
+
+    def _get_choice_probabilities(self, 
+                                  prompt, 
+                                  choices, 
+                                  NUM_SEEDS=5, 
+                                  decision_type="generic_decision", 
+                                  game_state=None, 
+                                  turn_number=None):
+        """
+        Compute the probabilities for each choice given the prompt by querying the LLM.
+        Logs the decision details.
+        """
+
+        assert decision_type != "generic_decision"
+
+        # If turn_number or game_state not provided, try retrieving from self.game
+        if turn_number is None:
+            turn_number = getattr(self.game, "turn_number", None)
+        #  if game_state is None:
+        #      game_state = self._get_textual_overview()
+        game_state = self._get_game_state()
+
         if len(choices) == 2:
             NUM_SEEDS = min(NUM_SEEDS, 2)
-        # we use num seeds to get a more stable estimate of the probabilities, since the llm is biased towards selecting the first option
-        def get_raw_probabilities(prompt):
-            tokenized_prompt = self.tokenizer(prompt, return_tensors="pt")
+        
+        def get_raw_probabilities(prompt_text):
+            tokenized_prompt = self.tokenizer(prompt_text, return_tensors="pt")
             input_ids = tokenized_prompt.input_ids.to(self.model.device)
             attention_mask = tokenized_prompt.attention_mask.to(self.model.device)
 
@@ -66,47 +92,77 @@ class PlayerLLM(Player):
                 top_p=None,
                 pad_token_id=self.tokenizer.eos_token_id
             )
-            assert out['scores'][-1].min() != float('-inf')
             probabilities = out['scores'][-1].softmax(dim=1)
             return probabilities
 
         final_probabilities = defaultdict(float)
+        raw_seed_data = []
 
-        for _ in tqdm(range(NUM_SEEDS), desc="choosing", leave=False):
+        for seed_index in tqdm(range(NUM_SEEDS), desc="choosing", leave=False):
             self.current_seed += 1
             random.seed(self.current_seed)
-            shuffled_choices = sorted(choices)
-            random.shuffle(shuffled_choices)
-            if len(shuffled_choices) >= 100:
-                shuffled_choices = shuffled_choices[:99]
-            prompt_with_choices = prompt + "\n\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(shuffled_choices)]) + "\n\nChoice: "
+            if len(choices) == 2:
+                if seed_index % 2 == 0:
+                    shuffled_choices = choices[:]
+                else:
+                    shuffled_choices = choices[::-1]
+            else:
+                # Regular random shuffle for more than two choices
+                shuffled_choices = sorted(choices[:])
+                random.shuffle(shuffled_choices)
+
+            # Truncate if too many choices
+            truncated_choices = shuffled_choices
+            if len(truncated_choices) >= 100:
+                truncated_choices = truncated_choices[:99]
+
+            prompt_with_choices = (prompt + "\n\n" 
+                                   + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(truncated_choices)]) 
+                                   + "\n\nChoice: ")
 
             probabilities = get_raw_probabilities(prompt_with_choices)
 
             total_probability_mass = 0
-            for i in range(1, len(shuffled_choices)+1):
+            for i in range(1, len(truncated_choices)+1):
                 total_probability_mass += probabilities[0, self.llm_number_tokens[i]].item()
 
-            assert total_probability_mass >= 0.5
+            assert total_probability_mass >= 0.5, "Total probability mass is unexpectedly low."
 
-            for i in range(1, len(shuffled_choices)+1):
-                # Add normalized probability mass
-                final_probabilities[shuffled_choices[i-1]] += probabilities[0, self.llm_number_tokens[i]].item()/total_probability_mass / NUM_SEEDS
+            seed_probabilities = {}
+            for i in range(1, len(truncated_choices)+1):
+                choice_prob = probabilities[0, self.llm_number_tokens[i]].item()/total_probability_mass
+                final_probabilities[truncated_choices[i-1]] += choice_prob/NUM_SEEDS
+                seed_probabilities[truncated_choices[i-1]] = choice_prob
+
+            merged_seed_data = [
+                (choice, seed_probabilities[choice]) for choice in truncated_choices
+            ]
+
+            raw_seed_data.append({
+                "seed": self.current_seed,
+                "shuffled_order_with_probabilities": merged_seed_data
+            })
 
         total_mass = sum(final_probabilities.values())
-        assert abs(total_mass - 1) < 0.01
+        assert abs(total_mass - 1) < 0.01, "Probability mass should be close to 1 after normalization."
 
-        # Convert final_probabilities back to a stable ordering
-        # final_probabilities is a dict {choice: probability}
-        # Sort by -prob for stable selection in random.choices
-        sorted_items = sorted(final_probabilities.items(), key=lambda x: x[0])  # sort by choice text
-        choices_list, prob_values = zip(*sorted_items)
+        final_choices, final_probs = zip(*final_probabilities.items())
+        selected_choice = random.choices(final_choices, weights=final_probs, k=1)[0]
 
-        # Randomly select based on computed probabilities
-        selected_choice = random.choices(choices_list, weights=prob_values, k=1)[0]
-
-        # Log decision
-        self._log_decision(prompt, choices, dict(final_probabilities), selected_choice)
+        # Log the decision
+        log_entry = {
+            "decision_type": decision_type,
+            "prompt": prompt,
+            "choices": list(final_choices),
+            "probabilities": {c: p for c, p in final_probabilities.items()},
+            "selected_choice": selected_choice,
+            #  "turn_number": turn_number,
+            "game_state": game_state,
+            "NUM_SEEDS": NUM_SEEDS,
+            "raw_seed_data": raw_seed_data
+        }
+        self.log.append(log_entry)
+        pd.DataFrame(self.log).to_csv(self.log_file, index=False)
 
         return selected_choice
 
@@ -127,27 +183,41 @@ class PlayerLLM(Player):
         return game_state
 
     def process_cards_phase(self):
-        logging.info(f"\x1b[1m\nCards Phase - {self}\x1b[0m")
+        logging.info(f"\x1b[1m\n{self.game.turn_number}) Cards Phase - {self}\x1b[0m")
         print(f"Cards on hand: {self.get_cards()}")
 
         while options := self.get_trade_in_options():
             text_state = self._get_textual_overview()
             choices = ["Swap in " + '+'.join([str(card) for card in option]) for option in options]
 
-            choice_skip_swap_in = self._get_choice_probabilities(text_state + "Possible swap in options:\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(choices)]) + "\nDo you want to swap in cards or skip?", ["Swap in", "Skip"])
+            choice_skip_swap_in = self._get_choice_probabilities(
+                prompt=text_state + "Possible swap in options:\n" + "\n".join([f"{i+1}) {choice}" for i, choice in enumerate(choices)]) + "\nDo you want to swap in cards or skip?",
+                choices=["Swap in", "Skip"],
+                decision_type="cards_phase_swap_or_skip",
+                game_state=text_state,
+                turn_number=getattr(self.game, "turn_number", None)
+            )
             if choice_skip_swap_in == "Skip":
                 break
 
             if len(options) > 1:
-                choice = self._get_choice_probabilities(text_state + "Which of these options do you want to swap in?\n", choices).split()
+                chosen_option_str = self._get_choice_probabilities(
+                    prompt=text_state + "Which of these options do you want to swap in?\n",
+                    choices=choices,
+                    decision_type="cards_phase_which_swap_option",
+                    game_state=text_state,
+                    turn_number=getattr(self.game, "turn_number", None)
+                )
             else:
-                choice = choices[0]
-            self.game.trade_in_cards(self, options[choices.index(choice)])
+                chosen_option_str = choices[0]
+
+            chosen_option = options[choices.index(chosen_option_str)]
+            self.game.trade_in_cards(self, chosen_option)
         else:
             print("Player cannot trade in any cards")
 
     def process_draft_phase(self):
-        logging.info(f"\x1b[1m\nDraft Phase - {self}\x1b[0m")
+        logging.info(f"\x1b[1m\n{self.game.turn_number}) Draft Phase - {self}\x1b[0m")
         logging.info(f"\x1b[33mUnassigned soldiers: {self.unassigned_soldiers}\x1b[0m")
 
         while self.unassigned_soldiers > 0:
@@ -157,56 +227,81 @@ class PlayerLLM(Player):
             choices = []
             country_choices = []
             for x in position:
-                choices += [f"Assign {x[1]} soldiers to {x[0].name}. Bordering Territories: {', '.join(f'{country.name}' for country,_ in x[2])}"]
-                country_choices += [x[0]]
-            choice = self._get_choice_probabilities(text_state, choices)
+                choices.append(f"Assign {x[1]} soldiers to {x[0].name}. Bordering Territories: {', '.join(f'{country.name}' for country,_ in x[2])}")
+                country_choices.append(x[0])
+
+            choice = self._get_choice_probabilities(
+                prompt=text_state,
+                choices=choices,
+                decision_type="draft_phase_assign_soldier",
+                game_state=text_state,
+                turn_number=getattr(self.game, "turn_number", None)
+            )
             selected_country = country_choices[choices.index(choice)]
             self.game.assign_soldiers(self, selected_country, 1)
 
     def process_attack_phase(self):
-        logging.info(f"\x1b[1m\nAttack Phase - {self}\x1b[0m")
+        logging.info(f"\x1b[1m\n{self.game.turn_number}) Attack Phase - {self}\x1b[0m")
 
         total_solders_per_owner = defaultdict(int)
         for country in self.game.countries:
             total_solders_per_owner[country.owner.name] += country.army.n_soldiers
         print(sorted(total_solders_per_owner.items()))
+
         while True:
             text_state = self._get_textual_overview()
             if not self.game.country_conquered_in_round:
-                text_state += "\nNo countries were conquered in the this round. Attack to get bonus.\n"
+                text_state += "\nNo countries were conquered in this round. Attack to get bonus.\n"
             else:
-                text_state += "\nYou have already conquered country in round to achieve bonus.\n"
+                text_state += "\nYou have already conquered a country this round.\n"
             text_state += "Attack options:\n"
 
-            skip_or_attack_text = text_state
-
             attack_options = self.game.get_attack_options(self)
-
             attack_choices = []
             attack_defence_countries = []
             for x in attack_options:
                 (origin_country, origin_soldiers), (dest_country, dest_soldiers) = x
-                attack_choices += [f"{origin_country.name} ({origin_country.owner}) with {origin_soldiers} soldiers to attack {dest_country.name} ({dest_country.owner}) with {dest_soldiers} solders"]
-                attack_defence_countries += [(origin_country, dest_country)]
+                attack_choices.append(
+                    f"{origin_country.name} ({origin_country.owner}) with {origin_soldiers} soldiers to attack {dest_country.name} ({dest_country.owner}) with {dest_soldiers} soldiers"
+                )
+                attack_defence_countries.append((origin_country, dest_country))
+
             if len(attack_choices) == 0:
                 break
-            sorted_choices = sorted(attack_choices)
-            random.shuffle(sorted_choices)
-            skip_or_attack_text += "\n".join(sorted_choices)
-            choice_probabilities = self._get_choice_probabilities(skip_or_attack_text, ["Skip","Attack"])
-            if choice_probabilities == "Skip":
+
+            # Decide whether to skip attacking or proceed
+            choice_skip_or_attack = self._get_choice_probabilities(
+                prompt=text_state + "\n" + "\n".join(sorted(attack_choices)) + "\nDo you want to Skip or Attack?",
+                choices=["Skip","Attack"],
+                decision_type="attack_phase_skip_or_attack",
+                game_state=text_state,
+                turn_number=getattr(self.game, "turn_number", None)
+            )
+            if choice_skip_or_attack == "Skip":
                 break
-            choice_probabilities = self._get_choice_probabilities(text_state, attack_choices)
 
-            attacker_country, defender_country = attack_defence_countries[attack_choices.index(choice_probabilities)]
+            # Which attack to perform
+            chosen_attack = self._get_choice_probabilities(
+                prompt=text_state,
+                choices=attack_choices,
+                decision_type="attack_phase_which_attack",
+                game_state=text_state,
+                turn_number=getattr(self.game, "turn_number", None)
+            )
 
+            attacker_country, defender_country = attack_defence_countries[attack_choices.index(chosen_attack)]
             n_soldiers = attacker_country.army.n_soldiers
 
-            if n_soldiers-1 > 1:
-                attacking_soldiers = int(self._get_choice_probabilities(
-                    self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers", 
-                    [f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))]
-                ).split()[1])
+            # Decide how many soldiers to send
+            if n_soldiers - 1 > 1:
+                num_soldier_choice = self._get_choice_probabilities(
+                    prompt=self._get_textual_overview() + f"\n{self.name} (you) are using {attacker_country.name} with {attacker_country.army.n_soldiers} soldiers to attack {defender_country.name} with {defender_country.army.n_soldiers} soldiers",
+                    choices=[f"Send {x+1} soldiers" for x in range(min(3, n_soldiers-1))],
+                    decision_type="attack_phase_how_many_soldiers",
+                    game_state=self._get_textual_overview(),
+                    turn_number=getattr(self.game, "turn_number", None)
+                )
+                attacking_soldiers = int(num_soldier_choice.split()[1])
             else:
                 attacking_soldiers = 1
 
@@ -214,33 +309,62 @@ class PlayerLLM(Player):
             self.game.attack(self, attacker_country, defender_country, attacking_soldiers)
 
     def process_fortify_phase(self):
-        logging.info(f"\x1b[1m\nFortify Phase - {self}\x1b[0m")
+        logging.info(f"\x1b[1m\n{self.game.turn_number}) Fortify Phase - {self}\x1b[0m")
         max_fortify_rounds = len(self.game.get_fortify_options(self))*2
         for _ in range(max_fortify_rounds):
-            self.game.get_fortify_options(self)
+            fortify_options = self.game.get_fortify_options(self)
             text_state = self._get_textual_overview()
             text_state += "\nFortify options:\n"
             fortify_choices = []
             fortify_from_to = []
-            for (origin_country, dest_country) in [(o,d) for (o,d,_,_,_,_) in self.game.get_fortify_options(self)]:
-                fortify_choices += [f"Move soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldier"]
-                fortify_from_to += [(origin_country, dest_country)]
+
+            # Unpack the data from the fortify options
+            for (origin_country, dest_country, _, _, _, _) in sorted(fortify_options, key=lambda x: x[0].name):
+                fortify_choices.append(
+                    f"Move soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldiers"
+                )
+                fortify_from_to.append((origin_country, dest_country))
+
             if len(fortify_choices) == 0:
                 break
-            skip_or_fortify_text = text_state + "\n".join(fortify_choices) + "\nDo we want to skip or fortify?"
-            skip_or_fortify_choice = self._get_choice_probabilities(skip_or_fortify_text, ["Skip","Fortify"])
+
+            skip_or_fortify_choice = self._get_choice_probabilities(
+                prompt=text_state + "\n".join(fortify_choices) + "\nDo we want to skip or fortify?",
+                choices=["Skip","Fortify"],
+                decision_type="fortify_phase_skip_or_fortify",
+                game_state=text_state,
+                turn_number=getattr(self.game, "turn_number", None)
+            )
             if skip_or_fortify_choice == "Skip":
                 break
+
             if len(fortify_choices) == 1:
                 fortify_choice = fortify_choices[0]
             else:
-                fortify_choice = self._get_choice_probabilities(text_state, fortify_choices)
+                fortify_choice = self._get_choice_probabilities(
+                    prompt=text_state,
+                    choices=fortify_choices,
+                    decision_type="fortify_phase_which_move",
+                    game_state=text_state,
+                    turn_number=getattr(self.game, "turn_number", None)
+                )
+
             origin_country, dest_country = fortify_from_to[fortify_choices.index(fortify_choice)]
-            number_of_soldiers_to_move = self._get_textual_overview() + f"\n{self.name} (you) are moving soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldiers"
+            move_prompt = (self._get_textual_overview() 
+                           + f"\n{self.name} (you) are moving soldiers from {origin_country.name} with {origin_country.army.n_soldiers} soldiers to {dest_country.name} with {dest_country.army.n_soldiers} soldiers")
+
             if origin_country.army.n_soldiers > 1:
-                number_of_soldiers_to_move = int(self._get_choice_probabilities(number_of_soldiers_to_move, [f"Move {x} soldiers" for x in range(1, origin_country.army.n_soldiers)]).split()[1])
+                number_of_soldiers_str = self._get_choice_probabilities(
+                    prompt=move_prompt,
+                    choices=[f"Move {x} soldiers" for x in range(1, origin_country.army.n_soldiers)],
+                    decision_type="fortify_phase_how_many_soldiers",
+                    game_state=self._get_textual_overview(),
+                    turn_number=getattr(self.game, "turn_number", None)
+                )
+                number_of_soldiers_to_move = int(number_of_soldiers_str.split()[1])
             else:
                 number_of_soldiers_to_move = 1
+
             logging.info(f"\x1b[33mLLM Fortifying {number_of_soldiers_to_move} soldiers from {origin_country} to {dest_country}\x1b[0m")
             self.game.fortify(self, origin_country, dest_country, number_of_soldiers_to_move)
         logging.info(f"\x1b[33mLLM Fortify phase ended\x1b[0m")

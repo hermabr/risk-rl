@@ -27,7 +27,9 @@ def assign_unique_colors(players: List[Player]) -> dict:
     return color_mapping
 
 class Game:
-    def __init__(self, players, display_map=True, delay=True):
+    def __init__(self, players, display_map=True, delay=True, max_turns=None):
+        self.max_turns = max_turns
+        self.turn_number = 1
         self.display_map = display_map
         self.delay = delay
         self.players = players
@@ -168,11 +170,16 @@ class Game:
                 case _:
                     raise ValueError(f"Invalid phase {self.curr_phase}")
             self.next_phase()
+            if self.max_turns and self.turn_number > self.max_turns:
+                logging.info(f"\n\x1b[1m\x1b[32mGame ended in a draw\x1b[0m")
+                return
     
     def visualize(self):
         self.game_map.draw_map()
 
     def next_player(self):
+        if self.players.index(self.current_player) == self.num_players - 1:
+            self.turn_number += 1
         self.current_player = self.players[(self.players.index(self.current_player) + 1) % self.num_players]
         self.country_conquered_in_round = False
 
